@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/olive_starter}
+    username: ${DB_USERNAME:olive}
+    password: ${DB_PASSWORD:change_me}
+    driver-class-name: org.postgresql.Driver
+  h2:
+    console:
+      enabled: false
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+

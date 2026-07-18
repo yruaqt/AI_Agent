@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:starter_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  h2:
+    console:
+      enabled: false
+app:
+  version: test
+  cors-origins: http://localhost:5173
+

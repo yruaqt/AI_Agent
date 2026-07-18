@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-olive_starter}
+      POSTGRES_USER: ${POSTGRES_USER:-olive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-olive} -d ${POSTGRES_DB:-olive_starter}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  backend:
+    build: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-olive_starter}
+      DB_USERNAME: ${POSTGRES_USER:-olive}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  frontend:
+    build: ./frontend
+    ports:
+      - "8088:80"
+    depends_on:
+      - backend
+volumes:
+  postgres-data:
+
