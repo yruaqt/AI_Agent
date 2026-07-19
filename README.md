@@ -9,7 +9,6 @@
 - H2 本地数据库、PostgreSQL 配置、Flyway 基线迁移
 - Docker Compose 和基础测试
 
-项目不包含用户、果园、Agent、RAG、天气、任务、计算器和实训记录等业务实现。开发任务见 [docs/MODULE_TASKS.md](docs/MODULE_TASKS.md)。
 
 ## 本地启动
 
