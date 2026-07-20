@@ -6,10 +6,7 @@ import com.lanyuan.starter.common.web.ControllerSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -36,11 +33,12 @@ public class TrainingRecordController extends ControllerSupport {
     public ApiResponse<TrainingRecord> create(@Valid @RequestBody CreateRequest req) {
         // TODO: 认证模块完成后，从 current user 获取 studentId
         return ApiResponse.ok(service.create(1L, req.orchardId, req.taskId, req.recordDate,
-                req.inspectedTreeCount, req.abnormalTreeCount, req.phenomenon, req.measure, req.result));
+                req.inspectedTreeCount, req.abnormalTreeCount, req.imageUrl,
+                req.phenomenon, req.measure, req.result));
     }
 
     @GetMapping
-    @Operation(summary = "实训记录列表（§11.2）")
+    @Operation(summary = "实训记录列表")
     public PageResponse<TrainingRecord> list(
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) int pageSize,
@@ -63,7 +61,8 @@ public class TrainingRecordController extends ControllerSupport {
     @Operation(summary = "修改本人实训记录")
     public ApiResponse<TrainingRecord> update(@PathVariable @Min(1) Long recordId, @Valid @RequestBody UpdateRequest req) {
         return ApiResponse.ok(service.update(recordId, req.orchardId, req.taskId, req.recordDate,
-                req.inspectedTreeCount, req.abnormalTreeCount, req.phenomenon, req.measure, req.result));
+                req.inspectedTreeCount, req.abnormalTreeCount, req.imageUrl,
+                req.phenomenon, req.measure, req.result));
     }
 
     @PostMapping("/{recordId}/review")
@@ -79,6 +78,7 @@ public class TrainingRecordController extends ControllerSupport {
         @NotNull public LocalDate recordDate;
         public Integer inspectedTreeCount;
         public Integer abnormalTreeCount;
+        @Size(max = 512) public String imageUrl;
         @Size(max = 1000) public String phenomenon;
         @Size(max = 1000) public String measure;
         @Size(max = 1000) public String result;
@@ -90,6 +90,7 @@ public class TrainingRecordController extends ControllerSupport {
         @NotNull public LocalDate recordDate;
         public Integer inspectedTreeCount;
         public Integer abnormalTreeCount;
+        @Size(max = 512) public String imageUrl;
         @Size(max = 1000) public String phenomenon;
         @Size(max = 1000) public String measure;
         @Size(max = 1000) public String result;

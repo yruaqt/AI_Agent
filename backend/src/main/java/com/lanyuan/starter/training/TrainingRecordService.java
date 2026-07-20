@@ -20,8 +20,8 @@ public class TrainingRecordService {
 
     @Transactional
     public TrainingRecord create(Long studentId, Long orchardId, Long taskId, LocalDate recordDate,
-                                  Integer inspectedTreeCount, Integer abnormalTreeCount,
-                                  String phenomenon, String measure, String result) {
+                                 Integer inspectedTreeCount, Integer abnormalTreeCount,
+                                 String imageUrl, String phenomenon, String measure, String result) {
         TrainingRecord record = new TrainingRecord();
         record.setStudentId(studentId);
         record.setOrchardId(orchardId);
@@ -29,6 +29,7 @@ public class TrainingRecordService {
         record.setRecordDate(recordDate);
         record.setInspectedTreeCount(inspectedTreeCount);
         record.setAbnormalTreeCount(abnormalTreeCount);
+        record.setImageUrl(imageUrl);
         record.setPhenomenon(phenomenon);
         record.setMeasure(measure);
         record.setResult(result);
@@ -37,7 +38,7 @@ public class TrainingRecordService {
     }
 
     public Page<TrainingRecord> list(Long orchardId, Long studentId, LocalDate startDate,
-                                      LocalDate endDate, PageRequest pr) {
+                                     LocalDate endDate, PageRequest pr) {
         return repository.findWithFilters(orchardId, studentId, startDate, endDate, pr);
     }
 
@@ -48,8 +49,8 @@ public class TrainingRecordService {
 
     @Transactional
     public TrainingRecord update(Long id, Long orchardId, Long taskId, LocalDate recordDate,
-                                  Integer inspectedTreeCount, Integer abnormalTreeCount,
-                                  String phenomenon, String measure, String result) {
+                                 Integer inspectedTreeCount, Integer abnormalTreeCount,
+                                 String imageUrl, String phenomenon, String measure, String result) {
         TrainingRecord record = detail(id);
         // 已评价的记录不得修改（除非教师退回）
         if ("APPROVED".equals(record.getReviewStatus())) {
@@ -60,6 +61,7 @@ public class TrainingRecordService {
         record.setRecordDate(recordDate);
         record.setInspectedTreeCount(inspectedTreeCount);
         record.setAbnormalTreeCount(abnormalTreeCount);
+        record.setImageUrl(imageUrl);
         record.setPhenomenon(phenomenon);
         record.setMeasure(measure);
         record.setResult(result);

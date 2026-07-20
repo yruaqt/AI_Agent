@@ -46,6 +46,7 @@ CREATE TABLE training_record (
     record_date DATE NOT NULL,
     inspected_tree_count INT,
     abnormal_tree_count INT,
+    image_url VARCHAR(512),
     phenomenon VARCHAR(1000),
     measure VARCHAR(1000),
     result VARCHAR(1000),

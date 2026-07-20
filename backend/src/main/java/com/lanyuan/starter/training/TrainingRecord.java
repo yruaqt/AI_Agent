@@ -1,10 +1,7 @@
 package com.lanyuan.starter.training;
 
 import com.lanyuan.starter.database.entity.BusinessEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
-
+import jakarta.persistence.*;
 import java.time.LocalDate;
 
 @Entity
@@ -27,6 +24,9 @@ public class TrainingRecord extends BusinessEntity {
 
     @Column(name = "abnormal_tree_count")
     private Integer abnormalTreeCount;
+
+    @Column(length = 512)
+    private String imageUrl;
 
     @Column(length = 1000)
     private String phenomenon;
@@ -60,6 +60,8 @@ public class TrainingRecord extends BusinessEntity {
     public void setInspectedTreeCount(Integer inspectedTreeCount) { this.inspectedTreeCount = inspectedTreeCount; }
     public Integer getAbnormalTreeCount() { return abnormalTreeCount; }
     public void setAbnormalTreeCount(Integer abnormalTreeCount) { this.abnormalTreeCount = abnormalTreeCount; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public String getPhenomenon() { return phenomenon; }
     public void setPhenomenon(String phenomenon) { this.phenomenon = phenomenon; }
     public String getMeasure() { return measure; }
