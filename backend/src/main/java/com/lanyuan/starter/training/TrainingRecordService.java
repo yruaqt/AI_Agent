@@ -47,6 +47,17 @@ public class TrainingRecordService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "实训记录不存在"));
     }
 
+    /**
+     * 校验实训记录归属：只有记录所属学生可以操作
+     */
+    public void checkOwnership(Long recordId, Long userId) {
+        TrainingRecord record = repository.findById(recordId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "实训记录不存在"));
+        if (!record.getStudentId().equals(userId)) {
+            throw new IllegalStateException("无权操作：该记录不属于当前用户");
+        }
+    }
+
     @Transactional
     public TrainingRecord update(Long id, Long orchardId, Long taskId, LocalDate recordDate,
                                  Integer inspectedTreeCount, Integer abnormalTreeCount,

@@ -31,8 +31,8 @@ public class TrainingRecordController extends ControllerSupport {
     @PostMapping
     @Operation(summary = "新增实训记录")
     public ApiResponse<TrainingRecord> create(@Valid @RequestBody CreateRequest req) {
-        // TODO: 认证模块完成后，从 current user 获取 studentId
-        return ApiResponse.ok(service.create(1L, req.orchardId, req.taskId, req.recordDate,
+        // 认证模块完成后，studentId 将从 SecurityContext 自动获取
+        return ApiResponse.ok(service.create(currentUserId(), req.orchardId, req.taskId, req.recordDate,
                 req.inspectedTreeCount, req.abnormalTreeCount, req.imageUrl,
                 req.phenomenon, req.measure, req.result));
     }
@@ -46,20 +46,33 @@ public class TrainingRecordController extends ControllerSupport {
             @RequestParam(required = false) Long studentId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        // 学生只能查看自己的记录，管理员/教师可查看全部
+        Long effectiveStudentId = studentId;
+        if (!"ADMIN".equalsIgnoreCase(currentUserRole())) {
+            effectiveStudentId = currentUserId(); // 非管理员强制只看自己
+        }
         PageRequest pr = PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "recordDate"));
-        Page<TrainingRecord> result = service.list(orchardId, studentId, startDate, endDate, pr);
+        Page<TrainingRecord> result = service.list(orchardId, effectiveStudentId, startDate, endDate, pr);
         return pageResponse(result);
     }
 
     @GetMapping("/{recordId}")
     @Operation(summary = "实训记录详情")
     public ApiResponse<TrainingRecord> detail(@PathVariable @Min(1) Long recordId) {
+        // 非管理员只能查看自己的记录
+        if (!"ADMIN".equalsIgnoreCase(currentUserRole())) {
+            service.checkOwnership(recordId, currentUserId());
+        }
         return ApiResponse.ok(service.detail(recordId));
     }
 
     @PutMapping("/{recordId}")
     @Operation(summary = "修改本人实训记录")
     public ApiResponse<TrainingRecord> update(@PathVariable @Min(1) Long recordId, @Valid @RequestBody UpdateRequest req) {
+        // 非管理员只能修改自己的记录
+        if (!"ADMIN".equalsIgnoreCase(currentUserRole())) {
+            service.checkOwnership(recordId, currentUserId());
+        }
         return ApiResponse.ok(service.update(recordId, req.orchardId, req.taskId, req.recordDate,
                 req.inspectedTreeCount, req.abnormalTreeCount, req.imageUrl,
                 req.phenomenon, req.measure, req.result));
@@ -68,7 +81,23 @@ public class TrainingRecordController extends ControllerSupport {
     @PostMapping("/{recordId}/review")
     @Operation(summary = "教师评价")
     public ApiResponse<TrainingRecord> review(@PathVariable @Min(1) Long recordId, @Valid @RequestBody ReviewRequest req) {
+        // 只有管理员/教师可以评价
+        if (!"ADMIN".equalsIgnoreCase(currentUserRole())) {
+            throw new IllegalStateException("无权限：只有教师/管理员可以评价实训记录");
+        }
         return ApiResponse.ok(service.review(recordId, req.score, req.comment, req.status));
+    }
+
+    // ========== 权限占位方法（认证模块完成后替换为 SecurityContext 实现） ==========
+
+    private Long currentUserId() {
+        // TODO: 替换为 SecurityContextHolder.getContext().getAuthentication() 获取当前用户ID
+        return 1L;
+    }
+
+    private String currentUserRole() {
+        // TODO: 替换为 SecurityContextHolder.getContext().getAuthentication() 获取当前角色
+        return "ADMIN";
     }
 
     // --- Request DTOs ---
