@@ -36,4 +36,11 @@ public class FileController {
                 .contentType(mediaType)
                 .body(content.data());
     }
+
+    @DeleteMapping("/{fileId}")
+    @Operation(summary = "删除图片")
+    public ApiResponse<Void> delete(@PathVariable Long fileId) {
+        fileService.delete(fileId);
+        return ApiResponse.ok(null);
+    }
 }

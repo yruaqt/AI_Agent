@@ -11,7 +11,7 @@ import java.time.LocalDate;
 
 /**
  * 果园服务层
- * 接口文档 §5：果园 CRUD + 物候期管理
+ * 接口文档：果园 CRUD + 物候期管理
  */
 @Service
 public class OrchardService {
@@ -68,7 +68,17 @@ public class OrchardService {
 
     @Transactional
     public PhenologyRecord recordPhenology(Long orchardId, PhenologyStage phenology, LocalDate effectiveDate, String remark) {
-        detail(orchardId); // 验证果园存在
+        Orchard orchard = detail(orchardId);
+
+        // 物候期变更校验：新物候期不能早于当前物候期（按枚举顺序）
+        if (orchard.getCurrentPhenology() != null) {
+            PhenologyStage current = orchard.getCurrentPhenology();
+            if (phenology.ordinal() < current.ordinal()) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "物候期不能倒退，当前为 " + current + "，不能回退到 " + phenology);
+            }
+        }
+
         PhenologyRecord record = new PhenologyRecord();
         record.setOrchardId(orchardId);
         record.setPhenology(phenology);
@@ -77,7 +87,6 @@ public class OrchardService {
         PhenologyRecord saved = phenologyRepository.save(record);
 
         // 同步更新果园当前物候期
-        Orchard orchard = orchardRepository.findById(orchardId).get();
         orchard.setCurrentPhenology(phenology);
         orchard.setPhenologyEffectiveDate(effectiveDate);
         orchardRepository.save(orchard);

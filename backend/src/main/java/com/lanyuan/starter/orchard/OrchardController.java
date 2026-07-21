@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.DecimalMin;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.validation.annotation.Validated;
@@ -116,10 +117,16 @@ public class OrchardController extends ControllerSupport {
         return pageResponse(result);
     }
 
+    @GetMapping("/phenology-stages")
+    @Operation(summary = "物候期字典列表")
+    public ApiResponse<PhenologyStage[]> phenologyStages() {
+        return ApiResponse.ok(PhenologyStage.values());
+    }
+
     // --- Request DTOs ---
     public static class CreateOrchardRequest {
         @NotBlank @Size(max = 64) public String name;
-        @NotNull public BigDecimal areaMu;
+        @NotNull @DecimalMin("0") public BigDecimal areaMu;
         @NotNull @Min(1) public Integer treeCount;
         public Integer treeAgeYears;
         @Size(max = 64) public String variety;
@@ -137,7 +144,7 @@ public class OrchardController extends ControllerSupport {
 
     public static class UpdateOrchardRequest {
         @NotBlank @Size(max = 64) public String name;
-        @NotNull public BigDecimal areaMu;
+        @NotNull @DecimalMin("0") public BigDecimal areaMu;
         @NotNull @Min(1) public Integer treeCount;
         public Integer treeAgeYears;
         @Size(max = 64) public String variety;
