@@ -4,6 +4,11 @@ import com.lanyuan.starter.orchard.*;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import com.lanyuan.starter.entity.AppUser;
+import com.lanyuan.starter.enums.UserRole;
+import com.lanyuan.starter.repository.UserRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -18,14 +23,31 @@ public class SeedData implements CommandLineRunner {
 
     private final OrchardRepository orchardRepository;
     private final PhenologyRepository phenologyRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public SeedData(OrchardRepository orchardRepository, PhenologyRepository phenologyRepository) {
+    public SeedData(OrchardRepository orchardRepository, PhenologyRepository phenologyRepository,
+                    UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.orchardRepository = orchardRepository;
         this.phenologyRepository = phenologyRepository;
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
+
+
 
     @Override
     public void run(String... args) {
+        if (userRepository.count() == 0) {
+            AppUser admin = new AppUser(
+                    "admin",
+                    passwordEncoder.encode("123456"),
+                    "系统管理员",
+                    UserRole.ADMIN
+            );
+            userRepository.save(admin);
+        }
+
         if (orchardRepository.count() > 0) return;
 
         // 创建示例果园（需求文档 §6）
