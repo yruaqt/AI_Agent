@@ -53,6 +53,7 @@ public class OrchardController extends ControllerSupport {
     @PostMapping
     @Operation(summary = "新增果园（管理员）")
     public ApiResponse<Orchard> create(@Valid @RequestBody CreateOrchardRequest req) {
+        requireAdmin();
         Orchard orchard = new Orchard();
         orchard.setName(req.name);
         orchard.setAreaMu(req.areaMu);
@@ -75,6 +76,7 @@ public class OrchardController extends ControllerSupport {
     @PutMapping("/{orchardId}")
     @Operation(summary = "修改果园（管理员）")
     public ApiResponse<Orchard> update(@PathVariable @Min(1) Long orchardId, @Valid @RequestBody UpdateOrchardRequest req) {
+        requireAdmin();
         Orchard updated = new Orchard();
         updated.setName(req.name);
         updated.setAreaMu(req.areaMu);
@@ -97,12 +99,14 @@ public class OrchardController extends ControllerSupport {
     @PatchMapping("/{orchardId}/status")
     @Operation(summary = "修改果园状态（管理员）")
     public ApiResponse<Orchard> toggleStatus(@PathVariable @Min(1) Long orchardId, @RequestBody ToggleStatusRequest req) {
+        requireAdmin();
         return ApiResponse.ok(orchardService.toggleStatus(orchardId, EnabledStatus.valueOf(req.status.toUpperCase())));
     }
 
     @PostMapping("/{orchardId}/phenologies")
     @Operation(summary = "更新物候期（管理员）")
     public ApiResponse<PhenologyRecord> recordPhenology(@PathVariable @Min(1) Long orchardId, @Valid @RequestBody PhenologyRequest req) {
+        requireAdmin();
         return ApiResponse.ok(orchardService.recordPhenology(orchardId, req.phenology, req.effectiveDate, req.remark));
     }
 
@@ -121,6 +125,24 @@ public class OrchardController extends ControllerSupport {
     @Operation(summary = "物候期字典列表")
     public ApiResponse<PhenologyStage[]> phenologyStages() {
         return ApiResponse.ok(PhenologyStage.values());
+    }
+
+    // ========== 权限占位方法（认证模块完成后替换为 SecurityContext 实现） ==========
+
+    private Long currentUserId() {
+        // TODO: 替换为 SecurityContextHolder.getContext().getAuthentication() 获取当前用户ID
+        return 1L;
+    }
+
+    private String currentUserRole() {
+        // TODO: 替换为 SecurityContextHolder.getContext().getAuthentication() 获取当前角色
+        return "ADMIN";
+    }
+
+    private void requireAdmin() {
+        if (!"ADMIN".equalsIgnoreCase(currentUserRole())) {
+            throw new IllegalStateException("无权限：仅管理员可以执行此操作");
+        }
     }
 
     // --- Request DTOs ---
