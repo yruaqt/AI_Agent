@@ -38,6 +38,9 @@ public class ChatMessage extends BaseEntity {
     @Column(name = "error_summary", length = 500)
     private String errorSummary;
 
+    @Column(name = "citations_json", columnDefinition = "TEXT")
+    private String citationsJson;
+
     public Long getSessionId() { return sessionId; }
     public void setSessionId(Long sessionId) { this.sessionId = sessionId; }
     public ChatMessageRole getRole() { return role; }
@@ -54,4 +57,6 @@ public class ChatMessage extends BaseEntity {
     public void setFinishReason(String finishReason) { this.finishReason = finishReason; }
     public String getErrorSummary() { return errorSummary; }
     public void setErrorSummary(String errorSummary) { this.errorSummary = errorSummary; }
+    public String getCitationsJson() { return citationsJson; }
+    public void setCitationsJson(String citationsJson) { this.citationsJson = citationsJson; }
 }

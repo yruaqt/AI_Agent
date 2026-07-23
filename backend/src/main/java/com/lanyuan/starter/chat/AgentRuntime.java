@@ -8,6 +8,7 @@ import com.lanyuan.starter.agent.OrchardAgentTools;
 import com.lanyuan.starter.agent.WeatherAgentTools;
 import com.lanyuan.starter.model.BailianModelFactory;
 import dev.langchain4j.service.AiServices;
+import com.lanyuan.starter.rag.RagContentRetriever;
 import org.springframework.stereotype.Component;
 
 /** 延迟构建 LangChain4j AI Service，未配置私人密钥时应用仍可启动。 */
@@ -21,6 +22,7 @@ public class AgentRuntime {
     private final OrchardAgentTools orchardTools;
     private final WeatherAgentTools weatherTools;
     private final CalculatorAgentTools calculatorTools;
+    private final RagContentRetriever contentRetriever;
     private volatile OliveOrchardAgent agent;
 
     public AgentRuntime(BailianModelFactory modelFactory,
@@ -29,7 +31,8 @@ public class AgentRuntime {
                         DatabaseChatMemoryProvider memoryProvider,
                         OrchardAgentTools orchardTools,
                         WeatherAgentTools weatherTools,
-                        CalculatorAgentTools calculatorTools) {
+                        CalculatorAgentTools calculatorTools,
+                        RagContentRetriever contentRetriever) {
         this.modelFactory = modelFactory;
         this.promptFactory = promptFactory;
         this.sessionService = sessionService;
@@ -37,6 +40,7 @@ public class AgentRuntime {
         this.orchardTools = orchardTools;
         this.weatherTools = weatherTools;
         this.calculatorTools = calculatorTools;
+        this.contentRetriever = contentRetriever;
     }
 
     public OliveOrchardAgent agent() {
@@ -52,6 +56,7 @@ public class AgentRuntime {
                             ))
                             .chatMemoryProvider(memoryProvider)
                             .tools(orchardTools, weatherTools, calculatorTools)
+                            .contentRetriever(contentRetriever)
                             .maxToolCallingRoundTrips(AgentInvocationContext.MAX_TOOL_CALLS)
                             .maxSequentialToolsInvocations(AgentInvocationContext.MAX_TOOL_CALLS)
                             .compensateOnToolErrors(true)

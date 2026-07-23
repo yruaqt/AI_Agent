@@ -1,6 +1,7 @@
 package com.lanyuan.starter.model;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -21,7 +22,9 @@ public class BailianModelProperties {
     private final Duration timeout;
     private final double temperature;
     private final int maxRetries;
+    private final int embeddingDimensions;
 
+    @Autowired
     public BailianModelProperties(
             @Value("${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}") String baseUrl,
             @Value("${LLM_API_KEY:}") String apiKey,
@@ -29,7 +32,8 @@ public class BailianModelProperties {
             @Value("${LLM_EMBEDDING_MODEL:text-embedding-v3}") String embeddingModel,
             @Value("${LLM_TIMEOUT_SECONDS:60}") long timeoutSeconds,
             @Value("${LLM_TEMPERATURE:0.2}") double temperature,
-            @Value("${LLM_MAX_RETRIES:2}") int maxRetries) {
+            @Value("${LLM_MAX_RETRIES:2}") int maxRetries,
+            @Value("${LLM_EMBEDDING_DIMENSIONS:1024}") int embeddingDimensions) {
         this.baseUrl = requireText(baseUrl, "LLM_BASE_URL");
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.chatModel = requireText(chatModel, "LLM_CHAT_MODEL");
@@ -37,6 +41,13 @@ public class BailianModelProperties {
         this.timeout = Duration.ofSeconds(Math.max(1, timeoutSeconds));
         this.temperature = Math.max(0, Math.min(2, temperature));
         this.maxRetries = Math.max(0, Math.min(5, maxRetries));
+        this.embeddingDimensions = Math.max(1, embeddingDimensions);
+    }
+
+    public BailianModelProperties(String baseUrl, String apiKey, String chatModel,
+                                  String embeddingModel, long timeoutSeconds,
+                                  double temperature, int maxRetries) {
+        this(baseUrl, apiKey, chatModel, embeddingModel, timeoutSeconds, temperature, maxRetries, 1024);
     }
 
     public String getBaseUrl() { return baseUrl; }
@@ -46,6 +57,7 @@ public class BailianModelProperties {
     public Duration getTimeout() { return timeout; }
     public double getTemperature() { return temperature; }
     public int getMaxRetries() { return maxRetries; }
+    public int getEmbeddingDimensions() { return embeddingDimensions; }
     public boolean hasApiKey() { return !apiKey.isBlank(); }
 
     /** 对外展示配置时只返回是否配置，绝不返回密钥本身。 */

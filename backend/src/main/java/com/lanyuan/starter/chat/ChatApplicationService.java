@@ -5,6 +5,8 @@ import com.lanyuan.starter.common.exception.BusinessException;
 import com.lanyuan.starter.common.exception.ErrorCode;
 import com.lanyuan.starter.model.BailianModelProperties;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.rag.content.Content;
+import dev.langchain4j.rag.content.ContentMetadata;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.BeforeToolExecution;
 import dev.langchain4j.service.tool.ToolExecution;
@@ -54,6 +56,7 @@ public class ChatApplicationService {
         PreparedGeneration prepared = prepare(sessionId, message);
         StringBuffer answer = new StringBuffer();
         List<ChatResponseData.ToolCallSummary> tools = Collections.synchronizedList(new ArrayList<>());
+        List<Object> citations = Collections.synchronizedList(new ArrayList<>());
         CompletableFuture<ChatResponseData> result = new CompletableFuture<>();
         AtomicBoolean finished = new AtomicBoolean();
 
@@ -68,8 +71,12 @@ public class ChatApplicationService {
             synchronized (tools) {
                 snapshot = List.copyOf(tools);
             }
+            List<Object> citationSnapshot;
+            synchronized (citations) {
+                citationSnapshot = List.copyOf(citations);
+            }
             result.complete(new ChatResponseData(
-                    String.valueOf(prepared.assistantMessageId()), answer.toString(), List.of(),
+                    String.valueOf(prepared.assistantMessageId()), answer.toString(), citationSnapshot,
                     snapshot, null, "STOPPED"
             ));
             return true;
@@ -78,9 +85,10 @@ public class ChatApplicationService {
         try {
             TokenStream stream = runtime.agent().chat(sessionId, message)
                     .onPartialResponse(answer::append)
+                    .onRetrieved(values -> citations.addAll(toCitations(values)))
                     .onToolExecuted(value -> tools.add(toolSummary(value)))
                     .onCompleteResponse(response -> completeNonStream(
-                            prepared, answer, tools, response, result, finished
+                            prepared, answer, citations, tools, response, result, finished
                     ))
                     .onError(error -> failNonStream(prepared, answer, error, result, finished));
             stream.start();
@@ -106,6 +114,7 @@ public class ChatApplicationService {
         long emitterTimeout = modelProperties.getTimeout().plusSeconds(30).toMillis();
         SseEmitter emitter = new SseEmitter(emitterTimeout);
         StringBuffer answer = new StringBuffer();
+        List<Object> citations = Collections.synchronizedList(new ArrayList<>());
         AtomicBoolean finished = new AtomicBoolean();
 
         activeGenerations.put(sessionId, () -> {
@@ -138,6 +147,11 @@ public class ChatApplicationService {
             TokenStream stream = runtime.agent().chat(sessionId, message)
                     .beforeToolExecution(value -> sendToolCall(emitter, value))
                     .onToolExecuted(value -> sendToolResult(emitter, value))
+                    .onRetrieved(values -> {
+                        List<Object> retrieved = toCitations(values);
+                        citations.addAll(retrieved);
+                        retrieved.forEach(value -> send(emitter, "citation", value));
+                    })
                     .onPartialResponse(delta -> {
                         answer.append(delta);
                         send(emitter, "delta", Map.of("content", delta));
@@ -147,7 +161,7 @@ public class ChatApplicationService {
                         long duration = elapsed(prepared.startedNanos());
                         messageService.complete(
                                 prepared.assistantMessageId(), answer.toString(), response.modelName(),
-                                finishReason(response), duration
+                                finishReason(response), duration, List.copyOf(citations)
                         );
                         AgentInvocationContext.end(prepared.sessionId());
                         activeGenerations.remove(prepared.sessionId());
@@ -211,6 +225,7 @@ public class ChatApplicationService {
 
     private void completeNonStream(PreparedGeneration prepared,
                                    StringBuffer answer,
+                                   List<Object> citations,
                                    List<ChatResponseData.ToolCallSummary> tools,
                                    ChatResponse response,
                                    CompletableFuture<ChatResponseData> result,
@@ -219,12 +234,17 @@ public class ChatApplicationService {
         long duration = elapsed(prepared.startedNanos());
         String reason = finishReason(response);
         messageService.complete(
-                prepared.assistantMessageId(), answer.toString(), response.modelName(), reason, duration
+                prepared.assistantMessageId(), answer.toString(), response.modelName(), reason,
+                duration, List.copyOf(citations)
         );
         AgentInvocationContext.end(prepared.sessionId());
         activeGenerations.remove(prepared.sessionId());
+        List<Object> citationSnapshot;
+        synchronized (citations) {
+            citationSnapshot = List.copyOf(citations);
+        }
         result.complete(new ChatResponseData(
-                String.valueOf(prepared.assistantMessageId()), answer.toString(), List.of(),
+                String.valueOf(prepared.assistantMessageId()), answer.toString(), citationSnapshot,
                 List.copyOf(tools), response.modelName(), reason
         ));
     }
@@ -253,6 +273,26 @@ public class ChatApplicationService {
         return new ChatResponseData.ToolCallSummary(
                 value.request().name(), value.hasFailed() ? "FAILED" : "SUCCESS", limit(value.result(), 200)
         );
+    }
+
+    private static List<Object> toCitations(List<Content> values) {
+        return values.stream().map(value -> {
+            Map<String, Object> citation = new LinkedHashMap<>();
+            var metadata = value.textSegment().metadata();
+            put(citation, "documentId", metadata.getString("documentId"));
+            put(citation, "documentName", metadata.getString("documentName"));
+            put(citation, "sourceOrganization", metadata.getString("sourceOrganization"));
+            put(citation, "chunkId", metadata.getString("chunkId"));
+            put(citation, "page", metadata.getInteger("page"));
+            put(citation, "quote", value.textSegment().text());
+            Object score = value.metadata().get(ContentMetadata.SCORE);
+            if (score != null) citation.put("score", score);
+            return (Object) citation;
+        }).toList();
+    }
+
+    private static void put(Map<String, Object> target, String key, Object value) {
+        if (value != null) target.put(key, value);
     }
 
     private static void sendToolCall(SseEmitter emitter, BeforeToolExecution value) {

@@ -5,6 +5,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 
+import java.time.OffsetDateTime;
+
 /** 文档切片及用于后续 RAG 过滤的元数据。 */
 @Entity
 @Table(name = "knowledge_chunk")
@@ -31,6 +33,18 @@ public class KnowledgeChunk extends BaseEntity {
     @Column(name = "document_type", length = 64)
     private String documentType;
 
+    @Column(name = "embedding_provider", length = 32)
+    private String embeddingProvider;
+
+    @Column(name = "embedding_dimension")
+    private Integer embeddingDimension;
+
+    @Column(name = "embedding_data", columnDefinition = "TEXT")
+    private String embeddingData;
+
+    @Column(name = "indexed_at")
+    private OffsetDateTime indexedAt;
+
     public Long getDocumentId() { return documentId; }
     public void setDocumentId(Long documentId) { this.documentId = documentId; }
     public int getChunkIndex() { return chunkIndex; }
@@ -45,4 +59,12 @@ public class KnowledgeChunk extends BaseEntity {
     public void setPhenology(String phenology) { this.phenology = phenology; }
     public String getDocumentType() { return documentType; }
     public void setDocumentType(String documentType) { this.documentType = documentType; }
+    public String getEmbeddingProvider() { return embeddingProvider; }
+    public void setEmbeddingProvider(String embeddingProvider) { this.embeddingProvider = embeddingProvider; }
+    public Integer getEmbeddingDimension() { return embeddingDimension; }
+    public void setEmbeddingDimension(Integer embeddingDimension) { this.embeddingDimension = embeddingDimension; }
+    public String getEmbeddingData() { return embeddingData; }
+    public void setEmbeddingData(String embeddingData) { this.embeddingData = embeddingData; }
+    public OffsetDateTime getIndexedAt() { return indexedAt; }
+    public void setIndexedAt(OffsetDateTime indexedAt) { this.indexedAt = indexedAt; }
 }

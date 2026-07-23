@@ -5,6 +5,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /** 消息持久化服务，流式回答先创建占位记录，结束后再更新。 */
 @Service
 public class ChatMessageService {
@@ -32,12 +34,19 @@ public class ChatMessageService {
     @Transactional
     public ChatMessage complete(Long messageId, String content, String model,
                                 String finishReason, long durationMs) {
+        return complete(messageId, content, model, finishReason, durationMs, List.of());
+    }
+
+    @Transactional
+    public ChatMessage complete(Long messageId, String content, String model,
+                                String finishReason, long durationMs, List<Object> citations) {
         ChatMessage value = repository.findById(messageId).orElseThrow();
         value.setContent(content);
         value.setModel(model);
         value.setFinishReason(finishReason);
         value.setDurationMs(durationMs);
         value.setStatus(ChatMessageStatus.SUCCESS);
+        value.setCitationsJson(writeCitations(citations));
         return repository.save(value);
     }
 
@@ -70,5 +79,13 @@ public class ChatMessageService {
         value.setContent(content);
         value.setStatus(status);
         return value;
+    }
+
+    private static String writeCitations(List<Object> citations) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(citations);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            return "[]";
+        }
     }
 }

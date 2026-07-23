@@ -96,6 +96,7 @@ public class BailianModelFactory {
                             .baseUrl(properties.getBaseUrl())
                             .apiKey(properties.getApiKey())
                             .modelName(properties.getEmbeddingModel())
+                            .dimensions(properties.getEmbeddingDimensions())
                             .timeout(properties.getTimeout())
                             .maxRetries(properties.getMaxRetries())
                             .logRequests(false)

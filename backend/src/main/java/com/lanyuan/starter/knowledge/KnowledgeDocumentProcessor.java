@@ -2,6 +2,9 @@ package com.lanyuan.starter.knowledge;
 
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import com.lanyuan.starter.rag.EmbeddingVector;
+import com.lanyuan.starter.rag.PgVectorStore;
+import com.lanyuan.starter.rag.RagEmbeddingService;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -14,15 +17,21 @@ public class KnowledgeDocumentProcessor {
     private final KnowledgeChunkRepository chunkRepository;
     private final KnowledgeParserRegistry parserRegistry;
     private final DocumentChunker chunker;
+    private final RagEmbeddingService embeddingService;
+    private final PgVectorStore pgVectorStore;
 
     public KnowledgeDocumentProcessor(KnowledgeDocumentRepository documentRepository,
                                       KnowledgeChunkRepository chunkRepository,
                                       KnowledgeParserRegistry parserRegistry,
-                                      DocumentChunker chunker) {
+                                      DocumentChunker chunker,
+                                      RagEmbeddingService embeddingService,
+                                      PgVectorStore pgVectorStore) {
         this.documentRepository = documentRepository;
         this.chunkRepository = chunkRepository;
         this.parserRegistry = parserRegistry;
         this.chunker = chunker;
+        this.embeddingService = embeddingService;
+        this.pgVectorStore = pgVectorStore;
     }
 
     @Async
@@ -44,7 +53,15 @@ public class KnowledgeDocumentProcessor {
             List<KnowledgeChunk> chunks = drafts.stream()
                     .map(draft -> toEntity(document, draft))
                     .toList();
+            for (KnowledgeChunk chunk : chunks) {
+                EmbeddingVector vector = embeddingService.embedForIndexing(chunk.getContent());
+                chunk.setEmbeddingProvider(vector.provider());
+                chunk.setEmbeddingDimension(vector.dimension());
+                chunk.setEmbeddingData(com.lanyuan.starter.rag.VectorCodec.encode(vector.values()));
+                chunk.setIndexedAt(java.time.OffsetDateTime.now());
+            }
             chunkRepository.saveAll(chunks);
+            for (KnowledgeChunk chunk : chunks) pgVectorStore.sync(chunk);
 
             document.setChunkCount(chunks.size());
             document.setStatus(DocumentStatus.SUCCESS);
