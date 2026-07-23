@@ -2,6 +2,7 @@ package com.lanyuan.starter.weather;
 
 import com.lanyuan.starter.orchard.Orchard;
 import com.lanyuan.starter.orchard.OrchardService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -26,6 +27,7 @@ public class WeatherService {
     private final Clock clock;
     private final Map<Long, CacheEntry> cache = new ConcurrentHashMap<>();
 
+    @Autowired
     public WeatherService(OrchardService orchardService,
                           AmapWeatherClient client,
                           WeatherProperties properties) {

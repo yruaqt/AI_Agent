@@ -10,16 +10,44 @@ public final class AgentInvocationContext {
 
     public static final int MAX_TOOL_CALLS = 5;
     private static final ThreadLocal<State> CURRENT = new ThreadLocal<>();
+    private static final java.util.concurrent.ConcurrentMap<Long, State> ACTIVE =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     private AgentInvocationContext() {}
 
     public static Scope open(Long sessionId) {
         State previous = CURRENT.get();
-        CURRENT.set(new State(sessionId));
+        begin(sessionId);
+        attach(sessionId);
         return () -> {
-            if (previous == null) CURRENT.remove();
-            else CURRENT.set(previous);
+            end(sessionId);
+            if (previous != null) CURRENT.set(previous);
         };
+    }
+
+    /** 在模型开始生成前创建本轮会话状态；同一会话不允许并发生成。 */
+    public static boolean begin(Long sessionId) {
+        return ACTIVE.putIfAbsent(sessionId, new State(sessionId)) == null;
+    }
+
+    /** LangChain4j 在工具线程执行前调用，将会话状态绑定到当前线程。 */
+    public static void attach(Long sessionId) {
+        State state = ACTIVE.get(sessionId);
+        if (state != null) CURRENT.set(state);
+    }
+
+    /** 单个工具执行结束后清理线程绑定，但保留整轮调用计数。 */
+    public static void detach() {
+        CURRENT.remove();
+    }
+
+    /** 模型生成完成或失败时释放会话状态。 */
+    public static void end(Long sessionId) {
+        ACTIVE.remove(sessionId);
+        State current = CURRENT.get();
+        if (current != null && java.util.Objects.equals(current.sessionId, sessionId)) {
+            CURRENT.remove();
+        }
     }
 
     static Long sessionId() {
