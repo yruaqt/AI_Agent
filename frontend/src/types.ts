@@ -160,6 +160,12 @@ export interface PhenologyRecord {
 }
 
 // 实训记录相关类型
+export interface TrainingRecordImage {
+  fileId: string
+  fileName: string
+  url: string
+}
+
 export interface TrainingRecord {
   id: string
   orchardId: string
@@ -172,6 +178,7 @@ export interface TrainingRecord {
   phenomenon: string
   measure: string
   result?: string
+  images?: TrainingRecordImage[]
   studentId: string
   studentName?: string
   score?: number
@@ -190,10 +197,18 @@ export interface TrainingRecordCreate {
   phenomenon: string
   measure: string
   result?: string
+  images?: TrainingRecordImage[]
 }
 
 export interface TrainingRecordReview {
   score: number
   comment: string
   status: 'APPROVED' | 'REJECTED'
+}
+
+// 文件上传响应（接口文档 12.1）
+export interface UploadedFile {
+  fileId: string
+  fileName: string
+  url: string
 }

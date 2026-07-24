@@ -1,13 +1,28 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import type { UploadRequestOptions, UploadUserFile } from 'element-plus'
 import api, { unwrap } from '@/api'
-import type { Orchard, PageData, TrainingRecord, TrainingRecordCreate, TrainingRecordReview, Task } from '@/types'
+import type {
+  Orchard,
+  PageData,
+  Task,
+  TrainingRecord,
+  TrainingRecordCreate,
+  TrainingRecordImage,
+  TrainingRecordReview,
+  UploadedFile
+} from '@/types'
 import { useAuthStore } from '@/stores/auth'
-import { Plus, Refresh, View, Edit, Check, Filter, Star } from '@element-plus/icons-vue'
+import { Plus, Refresh, View, Edit, Check, Filter, Star, Picture } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import SkeletonTable from '@/components/SkeletonTable.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import EmptyState from '@/components/EmptyState.vue'
+
+// 图片上传约束（接口文档 12.1）
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024 // 单张 5MB
+const MAX_IMAGE_COUNT = 6 // 少量现场图片
+const IMAGE_ACCEPT = ['image/jpeg', 'image/png', 'image/webp']
 
 const auth = useAuthStore()
 
@@ -47,7 +62,8 @@ const form = reactive<TrainingRecordCreate>({
   abnormalTreeCount: 0,
   phenomenon: '',
   measure: '',
-  result: ''
+  result: '',
+  images: []
 })
 
 const reviewForm = reactive<TrainingRecordReview>({
@@ -55,6 +71,23 @@ const reviewForm = reactive<TrainingRecordReview>({
   comment: '',
   status: 'APPROVED'
 })
+
+// 暂存图片：在 TrainingRecordImage 基础上保留 el-upload 的 uid，便于删除时定位
+interface StagedImage extends TrainingRecordImage {
+  uid: number
+}
+
+// 新增对话框中的图片：fileList 供 el-upload 展示，staged 保存后端返回信息
+const createImageList = ref<UploadUserFile[]>([])
+const createImages = ref<StagedImage[]>([])
+const uploadingImage = ref(false)
+
+// 编辑对话框中的图片
+const editImageList = ref<UploadUserFile[]>([])
+const editImages = ref<StagedImage[]>([])
+
+// 详情抽屉：受控图片 URL 需要带 Authorization 头，转成 blob URL 供 <img> 使用
+const detailImageSrc = reactive<Record<string, string>>({})
 
 const statusText: Record<string, string> = {
   PENDING: '待评价',
@@ -146,11 +179,21 @@ watch(() => searchForm.endDate, () => refresh())
 watch(() => searchForm.studentId, () => refresh())
 
 async function submit() {
-  await api.post('/training-records', form)
-  ElMessage.success('实训记录已提交')
-  dialog.value = false
-  resetForm()
-  await load()
+  // 携带已上传图片引用
+  form.images = createImages.value.map(img => ({
+    fileId: img.fileId,
+    fileName: img.fileName,
+    url: img.url
+  }))
+  try {
+    await api.post('/training-records', form)
+    ElMessage.success('实训记录已提交')
+    dialog.value = false
+    resetForm()
+    await load()
+  } catch {
+    // api 拦截器已处理错误提示
+  }
 }
 
 function resetForm() {
@@ -160,14 +203,137 @@ function resetForm() {
   form.phenomenon = ''
   form.measure = ''
   form.result = ''
+  form.images = []
+  createImages.value = []
+  createImageList.value = []
+}
+
+// 图片上传：客户端校验 + 调用 POST /files/images
+function beforeImageUpload(file: File): boolean {
+  if (!IMAGE_ACCEPT.includes(file.type)) {
+    ElMessage.warning('仅支持 JPEG、PNG、WebP 格式图片')
+    return false
+  }
+  if (file.size > MAX_IMAGE_SIZE) {
+    ElMessage.warning('单张图片不能超过 5 MB')
+    return false
+  }
+  return true
+}
+
+// el-upload 自定义上传，写入对应图片集合（以 uid 关联 fileList 与暂存数据）
+function makeImageUploader(
+  imagesRef: typeof createImages,
+  fileListRef: typeof createImageList
+) {
+  return async (options: UploadRequestOptions) => {
+    const file = options.file as File
+    const uid = options.file.uid
+    if (!beforeImageUpload(file)) {
+      // 校验失败：从文件列表移除该项
+      const idx = fileListRef.value.findIndex(f => f.uid === uid)
+      if (idx >= 0) fileListRef.value.splice(idx, 1)
+      return
+    }
+    uploadingImage.value = true
+    const fd = new FormData()
+    fd.append('file', file)
+    try {
+      const data = unwrap<UploadedFile>(await api.post('/files/images', fd))
+      imagesRef.value.push({
+        uid,
+        fileId: data.fileId,
+        fileName: data.fileName,
+        url: data.url
+      })
+      ElMessage.success('图片上传成功')
+    } catch (e) {
+      // 上传失败：从文件列表移除，避免展示成功假象
+      const idx = fileListRef.value.findIndex(f => f.uid === uid)
+      if (idx >= 0) fileListRef.value.splice(idx, 1)
+      console.error('上传图片失败', e)
+    } finally {
+      uploadingImage.value = false
+    }
+  }
+}
+
+const uploadCreateImage = makeImageUploader(createImages, createImageList)
+const uploadEditImage = makeImageUploader(editImages, editImageList)
+
+// 删除时按 uid 同步移除 fileList 与暂存数据
+function makeImageRemover(
+  imagesRef: typeof createImages,
+  fileListRef: typeof createImageList
+) {
+  return (file: UploadUserFile) => {
+    const uid = file.uid
+    const fIdx = fileListRef.value.findIndex(f => f.uid === uid)
+    if (fIdx >= 0) fileListRef.value.splice(fIdx, 1)
+    const iIdx = imagesRef.value.findIndex(img => img.uid === uid)
+    if (iIdx >= 0) imagesRef.value.splice(iIdx, 1)
+  }
+}
+
+const handleCreateImageRemove = makeImageRemover(createImages, createImageList)
+const handleEditImageRemove = makeImageRemover(editImages, editImageList)
+
+function handleImageExceed() {
+  ElMessage.warning(`最多上传 ${MAX_IMAGE_COUNT} 张现场图片`)
+}
+
+// 受控图片 URL → 带 token 的 blob URL（文件接口需鉴权访问）
+async function resolveImageSrc(url: string): Promise<string> {
+  if (!url) return ''
+  // 已是 blob/data URL 直接返回
+  if (/^(blob:|data:)/.test(url)) return url
+  if (detailImageSrc[url]) return detailImageSrc[url]
+  try {
+    // url 形如 /api/v1/files/7001/content，使用空 baseURL 走完整路径（命中 vite 代理）
+    const res = await api.get(url, { baseURL: '', responseType: 'blob' })
+    const blobUrl = URL.createObjectURL(res.data)
+    detailImageSrc[url] = blobUrl
+    return blobUrl
+  } catch (e) {
+    console.error('加载图片失败', e)
+    return ''
+  }
+}
+
+// 打开详情时预加载图片 blob URL
+async function preloadDetailImages(record: TrainingRecord) {
+  // 清理旧的 blob URL
+  Object.values(detailImageSrc).forEach(u => {
+    if (u.startsWith('blob:')) URL.revokeObjectURL(u)
+  })
+  Object.keys(detailImageSrc).forEach(k => delete detailImageSrc[k])
+  if (!record.images?.length) return
+  await Promise.all(record.images.map(img => resolveImageSrc(img.url)))
 }
 
 function openDetail(record: TrainingRecord) {
   currentRecord.value = record
   detailVisible.value = true
+  preloadDetailImages(record)
 }
 
-function openEdit(record: TrainingRecord) {
+// 打开新增对话框前重置图片状态
+function openCreate() {
+  resetForm()
+  dialog.value = true
+}
+
+// 将后端返回的图片信息映射为 el-upload 的 fileList（用于编辑回显）
+function imagesToFileList(images: StagedImage[] = []): UploadUserFile[] {
+  return images.map(img => ({
+    name: img.fileName,
+    uid: img.uid,
+    url: img.url,
+    status: 'success'
+  }))
+}
+
+async function openEdit(record: TrainingRecord) {
   if (!auth.isAdmin && record.studentId !== auth.user?.id) {
     ElMessage.warning('您只能编辑自己的实训记录')
     return
@@ -177,7 +343,24 @@ function openEdit(record: TrainingRecord) {
     return
   }
   editRecord.value = { ...record }
+  // 深拷贝图片并补齐 uid（用于删除定位），避免直接修改原始数据
+  editImages.value = (record.images || []).map((img, idx) => ({
+    fileId: img.fileId,
+    fileName: img.fileName,
+    url: img.url,
+    uid: Number(img.fileId) || Date.now() + idx
+  }))
+  editImageList.value = imagesToFileList(editImages.value)
   editVisible.value = true
+  // 已有图片的缩略图需鉴权访问，转成 blob URL 后回填到 fileList
+  await Promise.all(
+    editImages.value.map(async (img, idx) => {
+      const blobUrl = await resolveImageSrc(img.url)
+      if (blobUrl && editImageList.value[idx]) {
+        editImageList.value[idx].url = blobUrl
+      }
+    })
+  )
 }
 
 async function saveEdit() {
@@ -189,7 +372,12 @@ async function saveEdit() {
       abnormalTreeCount: editRecord.value.abnormalTreeCount,
       phenomenon: editRecord.value.phenomenon,
       measure: editRecord.value.measure,
-      result: editRecord.value.result
+      result: editRecord.value.result,
+      images: editImages.value.map(img => ({
+        fileId: img.fileId,
+        fileName: img.fileName,
+        url: img.url
+      }))
     })
     ElMessage.success('实训记录已更新')
     editVisible.value = false
@@ -198,6 +386,13 @@ async function saveEdit() {
     // api 拦截器已处理错误提示
   }
 }
+
+// 组件卸载时释放 blob URL，避免内存泄漏
+onBeforeUnmount(() => {
+  Object.values(detailImageSrc).forEach(u => {
+    if (u.startsWith('blob:')) URL.revokeObjectURL(u)
+  })
+})
 
 function openReview(record: TrainingRecord) {
   if (!auth.isAdmin) {
@@ -235,7 +430,7 @@ onMounted(load)
       </div>
       <div class="toolbar">
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="dialog = true">新增记录</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate">新增记录</el-button>
       </div>
     </div>
 
@@ -306,6 +501,15 @@ onMounted(load)
             </template>
           </el-table-column>
           <el-table-column prop="phenomenon" label="现场现象" min-width="240" show-overflow-tooltip />
+          <el-table-column label="图片" width="80" align="center">
+            <template #default="{ row }">
+              <span v-if="row.images && row.images.length" class="img-count">
+                <el-icon><Picture /></el-icon>
+                {{ row.images.length }}
+              </span>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="measure" label="处理措施" min-width="220" show-overflow-tooltip />
           <el-table-column label="提交人" width="100">
             <template #default="{ row }">
@@ -397,10 +601,28 @@ onMounted(load)
         <el-form-item label="处理结果">
           <el-input v-model="form.result" type="textarea" :rows="2" placeholder="描述处理结果（可选）" />
         </el-form-item>
+        <el-form-item label="现场图片">
+          <el-upload
+            v-model:file-list="createImageList"
+            list-type="picture-card"
+            accept="image/jpeg,image/png,image/webp"
+            :auto-upload="true"
+            :http-request="uploadCreateImage"
+            :on-remove="handleCreateImageRemove"
+            :on-exceed="handleImageExceed"
+            :limit="MAX_IMAGE_COUNT"
+            multiple
+          >
+            <el-icon class="upload-add-icon"><Plus /></el-icon>
+          </el-upload>
+          <div class="image-upload-tip">
+            最多 {{ MAX_IMAGE_COUNT }} 张现场照片，单张不超过 5 MB，支持 JPEG / PNG / WebP
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">提交记录</el-button>
+        <el-button type="primary" :loading="uploadingImage" @click="submit">提交记录</el-button>
       </template>
     </el-dialog>
 
@@ -452,6 +674,36 @@ onMounted(load)
         <div class="detail-section" v-if="currentRecord.result">
           <div class="detail-label">处理结果</div>
           <div class="detail-value" style="line-height: 1.7;">{{ currentRecord.result }}</div>
+        </div>
+
+        <div class="detail-section" v-if="currentRecord.images && currentRecord.images.length">
+          <div class="detail-label">
+            <el-icon><Picture /></el-icon> 现场图片
+            <span class="img-count-tip">共 {{ currentRecord.images.length }} 张</span>
+          </div>
+          <div class="image-gallery">
+            <el-image
+              v-for="(img, idx) in currentRecord.images"
+              :key="img.fileId"
+              :src="detailImageSrc[img.url]"
+              :preview-src-list="currentRecord.images.map(i => detailImageSrc[i.url]).filter(Boolean)"
+              :initial-index="idx"
+              fit="cover"
+              class="gallery-thumb"
+              preview-teleported
+              hide-on-click-modal
+            >
+              <template #placeholder>
+                <div class="gallery-loading">加载中…</div>
+              </template>
+              <template #error>
+                <div class="gallery-error">
+                  <el-icon><Picture /></el-icon>
+                  <span>加载失败</span>
+                </div>
+              </template>
+            </el-image>
+          </div>
         </div>
 
         <div class="detail-section">
@@ -508,10 +760,28 @@ onMounted(load)
         <el-form-item label="处理结果">
           <el-input v-model="editRecord.result" type="textarea" :rows="2" placeholder="描述处理结果（可选）" />
         </el-form-item>
+        <el-form-item label="现场图片">
+          <el-upload
+            v-model:file-list="editImageList"
+            list-type="picture-card"
+            accept="image/jpeg,image/png,image/webp"
+            :auto-upload="true"
+            :http-request="uploadEditImage"
+            :on-remove="handleEditImageRemove"
+            :on-exceed="handleImageExceed"
+            :limit="MAX_IMAGE_COUNT"
+            multiple
+          >
+            <el-icon class="upload-add-icon"><Plus /></el-icon>
+          </el-upload>
+          <div class="image-upload-tip">
+            最多 {{ MAX_IMAGE_COUNT }} 张现场照片，单张不超过 5 MB，支持 JPEG / PNG / WebP
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveEdit">保存修改</el-button>
+        <el-button type="primary" :loading="uploadingImage" @click="saveEdit">保存修改</el-button>
       </template>
     </el-dialog>
 
@@ -594,6 +864,76 @@ onMounted(load)
   gap: 4px;
   color: var(--amber);
   font-weight: 600;
+}
+
+/* 表格图片数量指示 */
+.img-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.img-count .el-icon {
+  font-size: 14px;
+}
+
+/* 图片上传 */
+.upload-add-icon {
+  font-size: 22px;
+  color: var(--muted);
+}
+
+.image-upload-tip {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* 详情图片画廊 */
+.img-count-tip {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.gallery-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: var(--green-light);
+  cursor: pointer;
+}
+
+.gallery-loading,
+.gallery-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  background: #f7f9f6;
+}
+
+.gallery-error .el-icon {
+  font-size: 22px;
+  color: var(--line);
 }
 
 .record-detail {
