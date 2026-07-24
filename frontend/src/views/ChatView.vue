@@ -1,22 +1,706 @@
 <script setup lang="ts">
-import { nextTick,onMounted,ref } from 'vue'
-import api,{unwrap} from '@/api'
-import type{Orchard,PageData}from '@/types'
-import { Plus,Delete,Promotion,VideoPause,Tools,Document } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-type Message={id?:string;role:string;content:string;citations?:any[];tools?:any[];streaming?:boolean}
-const orchard=ref<Orchard|null>(null),sessions=ref<any[]>([]),activeSession=ref<string>(),messages=ref<Message[]>([]),question=ref(''),sending=ref(false),scrollRef=ref<HTMLElement>(),controller=ref<AbortController>()
-async function init(){const o=unwrap<PageData<Orchard>>(await api.get('/orchards'));orchard.value=o.items[0];await loadSessions();if(sessions.value[0])await select(sessions.value[0].id)}
-async function loadSessions(){sessions.value=unwrap<PageData<any>>(await api.get('/chat/sessions')).items}
-async function createSession(){if(!orchard.value)return;const s=unwrap<any>(await api.post('/chat/sessions',{orchardId:orchard.value.id,title:'新对话'}));sessions.value.unshift(s);activeSession.value=s.id;messages.value=[]}
-async function select(id:string){activeSession.value=id;const d=unwrap<PageData<any>>(await api.get(`/chat/sessions/${id}/messages?pageSize=50`));messages.value=d.items.map(m=>({...m,citations:m.citationsJson?JSON.parse(m.citationsJson):[],tools:m.toolsJson?JSON.parse(m.toolsJson):[]}));scroll()}
-async function remove(id:string){await api.delete(`/chat/sessions/${id}`);sessions.value=sessions.value.filter(s=>s.id!==id);if(activeSession.value===id){activeSession.value=undefined;messages.value=[]}}
-async function send(){const text=question.value.trim();if(!text||sending.value)return;if(!activeSession.value)await createSession();question.value='';messages.value.push({role:'user',content:text});const target:Message={role:'assistant',content:'',citations:[],tools:[],streaming:true};messages.value.push(target);sending.value=true;controller.value=new AbortController();scroll();
-  try{const token=localStorage.getItem('accessToken');const base=import.meta.env.VITE_API_BASE||'/api/v1';const response=await fetch(`${base}/chat/sessions/${activeSession.value}/messages/stream`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({message:text}),signal:controller.value.signal});if(!response.ok)throw new Error((await response.json()).message||'生成失败');const reader=response.body!.getReader(),decoder=new TextDecoder();let buffer='';while(true){const{done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const blocks=buffer.split('\n\n');buffer=blocks.pop()||'';for(const block of blocks){let event='message',data='';for(const line of block.split('\n')){if(line.startsWith('event:'))event=line.slice(6).trim();if(line.startsWith('data:'))data+=line.slice(5).trim()}if(!data)continue;const parsed=JSON.parse(data);if(event==='delta')target.content+=parsed.text;if(event==='citation')target.citations!.push(parsed);if(event==='tool_result')target.tools!.push(parsed);if(event==='error')throw new Error(parsed.message);await scroll()}}await loadSessions()}catch(e:any){if(e.name!=='AbortError'){target.content+=`\n\n生成失败：${e.message}`;ElMessage.error(e.message)}}finally{target.streaming=false;sending.value=false;controller.value=undefined}}
-function stop(){controller.value?.abort();sending.value=false}
-async function scroll(){await nextTick();if(scrollRef.value)scrollRef.value.scrollTop=scrollRef.value.scrollHeight}
-onMounted(()=>init().catch(()=>{}))
-</script>
-<template><div class="chat-workspace"><aside class="session-pane"><el-button type="primary" :icon="Plus" @click="createSession">新建会话</el-button><div class="session-list"><button v-for="s in sessions" :key="s.id" :class="{active:activeSession===s.id}" @click="select(s.id)"><span>{{s.title}}</span><small>{{s.createdAt?.slice(5,16).replace('T',' ')}}</small><el-icon title="删除会话" @click.stop="remove(s.id)"><Delete/></el-icon></button></div></aside><section class="chat-main"><header class="chat-header"><div><strong>{{orchard?.name}}</strong><span>{{orchard?.currentPhenology}} · RAG 已连接</span></div><span class="status-pill">Agent 在线</span></header><div ref="scrollRef" class="messages"><div v-if="!messages.length" class="chat-empty"><div class="olive-seal">榄</div><h2>今天需要了解什么？</h2><div class="suggestions"><button @click="question='未来两天有大雨，幼果期是否需要灌溉和施肥？';send()">雨前水肥安排</button><button @click="question='300株橄榄树，每株施肥12千克，总量是多少？';send()">肥料总量计算</button><button @click="question='近期幼果落果较多，应先检查什么？';send()">幼果落果排查</button></div></div><article v-for="(m,i) in messages" :key="i" :class="['message',m.role]"><div class="avatar">{{m.role==='user'?'我':'榄'}}</div><div class="message-body"><div class="message-label">{{m.role==='user'?'我的问题':'榄园知行 Agent'}}</div><div class="message-content">{{m.content}}<span v-if="m.streaming" class="cursor"></span></div><div v-if="m.tools?.length" class="tool-list"><span v-for="t in m.tools" :key="t.name"><el-icon><Tools/></el-icon>{{t.name}}</span></div><details v-if="m.citations?.length" class="citations"><summary><el-icon><Document/></el-icon>{{m.citations.length}} 条知识来源</summary><div v-for="c in m.citations" :key="c.documentId+'-'+c.chunkNo"><strong>{{c.documentName}} · 片段 {{c.chunkNo}}</strong><p>{{c.content}}</p></div></details></div></article></div><footer class="composer"><el-input v-model="question" type="textarea" :autosize="{minRows:2,maxRows:5}" placeholder="输入果园管理问题…" resize="none" @keydown.ctrl.enter="send"/><button v-if="sending" class="send-button stop" title="停止生成" @click="stop"><el-icon><VideoPause/></el-icon></button><button v-else class="send-button" title="发送" :disabled="!question.trim()" @click="send"><el-icon><Promotion/></el-icon></button></footer></section></div></template>
-<style scoped>.chat-workspace{height:calc(100vh - 140px);min-height:600px;background:#fff;border:1px solid var(--line);border-radius:6px;display:grid;grid-template-columns:230px 1fr;overflow:hidden}.session-pane{background:#f7f9f7;border-right:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:14px}.session-list{display:flex;flex-direction:column;gap:4px;overflow:auto}.session-list button{display:grid;grid-template-columns:1fr auto;gap:3px 6px;border:0;background:transparent;border-radius:5px;padding:11px;text-align:left;color:var(--ink)}.session-list button.active,.session-list button:hover{background:#e7eee9}.session-list span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.session-list small{color:var(--muted);font-size:10px}.session-list .el-icon{grid-column:2;grid-row:1/3;color:#88948d;align-self:center}.chat-main{min-width:0;display:grid;grid-template-rows:64px 1fr auto}.chat-header{border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 20px}.chat-header>div{display:flex;flex-direction:column;gap:4px}.chat-header strong{font-size:13px}.chat-header span:not(.status-pill){font-size:10px;color:var(--muted)}.messages{overflow:auto;padding:20px max(20px,8%)}.chat-empty{display:grid;place-items:center;padding-top:10vh;text-align:center}.olive-seal{width:52px;height:52px;display:grid;place-items:center;background:#e7efe9;color:var(--green);font:700 25px serif;border-radius:6px}.chat-empty h2{font-size:20px;margin:16px}.suggestions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.suggestions button{border:1px solid var(--line);background:#fff;border-radius:5px;padding:9px 12px;color:var(--muted);font-size:11px}.suggestions button:hover{border-color:var(--green);color:var(--green)}.message{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;margin-bottom:24px}.avatar{width:32px;height:32px;border-radius:5px;background:#e8ede9;display:grid;place-items:center;font-size:12px;font-weight:700}.assistant .avatar{background:var(--green);color:white;font-family:serif}.message-label{font-size:11px;color:var(--muted);margin:0 0 7px}.message-content{white-space:pre-wrap;line-height:1.8;font-size:14px}.user .message-content{display:inline-block;background:#f1f4f1;border-radius:5px;padding:10px 13px}.cursor{display:inline-block;width:2px;height:15px;background:var(--green);margin-left:3px;vertical-align:middle;animation:blink 1s infinite}.tool-list{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.tool-list span{display:flex;align-items:center;gap:5px;background:#eef4ef;color:var(--green);font-size:10px;padding:5px 8px;border-radius:4px}.citations{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.citations summary{display:flex;align-items:center;gap:6px;color:var(--green);font-size:11px;cursor:pointer}.citations div{background:#f7f9f7;border-left:3px solid #a9c56d;margin-top:8px;padding:10px}.citations strong{font-size:11px}.citations p{font-size:11px;color:var(--muted);line-height:1.5;margin:5px 0 0}.composer{border-top:1px solid var(--line);padding:14px max(20px,8%);display:grid;grid-template-columns:1fr 42px;gap:10px;align-items:end}.send-button{height:42px;width:42px;border:0;border-radius:5px;background:var(--green);color:#fff;display:grid;place-items:center;font-size:18px}.send-button.stop{background:var(--red)}.send-button:disabled{opacity:.45}@keyframes blink{50%{opacity:0}}@media(max-width:800px){.chat-workspace{grid-template-columns:1fr;height:calc(100vh - 116px)}.session-pane{display:none}.messages{padding:16px}.composer{padding:12px}.chat-header{padding:0 14px}}</style>
+import { nextTick, onMounted, ref } from 'vue'
+import api, { unwrap } from '@/api'
+import type { Orchard, PageData } from '@/types'
+import {
+  Plus, Delete, Promotion, VideoPause, Tools, Document,
+  Loading, Check, Close, Expand
+} from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
+interface Citation {
+  documentId?: string
+  documentName?: string
+  chunkId?: string
+  chunkNo?: number
+  page?: number
+  quote?: string
+  content?: string
+}
+
+interface ToolCall {
+  name: string
+  status: string
+  summary?: string
+}
+
+interface Message {
+  id?: string
+  role: string
+  content: string
+  citations?: Citation[]
+  tools?: ToolCall[]
+  streaming?: boolean
+}
+
+const orchard = ref<Orchard | null>(null)
+const sessions = ref<any[]>([])
+const activeSession = ref<string>()
+const messages = ref<Message[]>([])
+const question = ref('')
+const sending = ref(false)
+const scrollRef = ref<HTMLElement>()
+const controller = ref<AbortController>()
+const sessionPaneVisible = ref(false)
+
+async function init() {
+  const savedId = localStorage.getItem('currentOrchardId')
+  try {
+    const data = unwrap<PageData<Orchard>>(
+      await api.get('/orchards', { params: { pageSize: 50, status: 'ENABLED' } })
+    )
+    if (savedId) {
+      orchard.value = data.items.find((o: Orchard) => o.id === savedId) || data.items[0] || null
+    } else {
+      orchard.value = data.items[0] || null
+    }
+    await loadSessions()
+    if (sessions.value[0]) await select(sessions.value[0].id)
+  } catch {
+    /* ignore */
+  }
+}
+
+async function loadSessions() {
+  try {
+    const params: any = {}
+    if (orchard.value) params.orchardId = orchard.value.id
+    sessions.value = unwrap<PageData<any>>(await api.get('/chat/sessions', { params })).items
+  } catch {
+    sessions.value = []
+  }
+}
+
+async function createSession() {
+  if (!orchard.value) {
+    ElMessage.warning('请先选择果园')
+    return
+  }
+  const s = unwrap<any>(
+    await api.post('/chat/sessions', { orchardId: orchard.value.id, title: '新对话' })
+  )
+  sessions.value.unshift(s)
+  activeSession.value = s.id
+  messages.value = []
+}
+
+async function select(id: string) {
+  activeSession.value = id
+  sessionPaneVisible.value = false
+  try {
+    const d = unwrap<PageData<any>>(await api.get(`/chat/sessions/${id}/messages?pageSize=50`))
+    messages.value = d.items.map((m: any) => ({
+      ...m,
+      role: m.role || 'assistant',
+      content: m.content || '',
+      citations: m.citationsJson
+        ? JSON.parse(m.citationsJson)
+        : m.citations || [],
+      tools: m.toolsJson
+        ? JSON.parse(m.toolsJson)
+        : m.toolCalls || m.tools || []
+    }))
+  } catch {
+    messages.value = []
+  }
+  scroll()
+}
+
+async function remove(id: string) {
+  try {
+    await ElMessageBox.confirm('确定删除该会话吗？删除后无法恢复。', '删除会话', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await api.delete(`/chat/sessions/${id}`)
+    sessions.value = sessions.value.filter((s) => s.id !== id)
+    if (activeSession.value === id) {
+      activeSession.value = undefined
+      messages.value = []
+    }
+  } catch (e: any) {
+    if (e !== 'cancel' && e?.name !== 'ElMessageBoxClose') {
+      // ignore cancel
+    }
+  }
+}
+
+async function send() {
+  const text = question.value.trim()
+  if (!text || sending.value) return
+  if (!activeSession.value) await createSession()
+  if (!activeSession.value) return
+  question.value = ''
+  messages.value.push({ role: 'user', content: text })
+  const target: Message = {
+    role: 'assistant',
+    content: '',
+    citations: [],
+    tools: [],
+    streaming: true
+  }
+  messages.value.push(target)
+  sending.value = true
+  controller.value = new AbortController()
+  scroll()
+
+  try {
+    const token = localStorage.getItem('accessToken')
+    const base = import.meta.env.VITE_API_BASE || '/api/v1'
+    const response = await fetch(
+      `${base}/chat/sessions/${activeSession.value}/messages/stream`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ message: text }),
+        signal: controller.value.signal
+      }
+    )
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err.message || '生成失败')
+    }
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split('\n\n')
+      buffer = blocks.pop() || ''
+      for (const block of blocks) {
+        let event = 'message',
+          data = ''
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim()
+          if (line.startsWith('data:')) data += line.slice(5).trim()
+        }
+        if (!data) continue
+        const parsed = JSON.parse(data)
+        if (event === 'delta') target.content += parsed.content || ''
+        if (event === 'citation') target.citations!.push(parsed)
+        if (event === 'tool_call')
+          target.tools!.push({
+            name: parsed.name,
+            status: parsed.status || 'RUNNING',
+            summary: ''
+          })
+        if (event === 'tool_result') {
+          const existing = target.tools!.find(
+            (t) => t.name === parsed.name && t.status === 'RUNNING'
+          )
+          if (existing) {
+            existing.status = parsed.status || 'SUCCESS'
+            existing.summary = parsed.summary || ''
+          } else {
+            target.tools!.push({
+              name: parsed.name,
+              status: parsed.status || 'SUCCESS',
+              summary: parsed.summary || ''
+            })
+          }
+        }
+        if (event === 'error') throw new Error(parsed.message || '生成失败')
+        await scroll()
+      }
+    }
+    await loadSessions()
+  } catch (e: any) {
+    if (e.name !== 'AbortError') {
+      target.content += `\n\n生成失败：${e.message}`
+      ElMessage.error(e.message)
+    }
+  } finally {
+    target.streaming = false
+    sending.value = false
+    controller.value = undefined
+  }
+}
+
+function stop() {
+  controller.value?.abort()
+  sending.value = false
+}
+
+async function scroll() {
+  await nextTick()
+  if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+}
+
+onMounted(() => init().catch(() => {}))
+</script>
+
+<template>
+  <div class="chat-workspace">
+    <aside class="session-pane" :class="{ show: sessionPaneVisible }">
+      <el-button type="primary" :icon="Plus" @click="createSession">新建会话</el-button>
+      <div v-if="!sessions.length" class="session-empty">暂无会话</div>
+      <div class="session-list">
+        <button
+          v-for="s in sessions"
+          :key="s.id"
+          :class="{ active: activeSession === s.id }"
+          @click="select(s.id)"
+        >
+          <span>{{ s.title || '新对话' }}</span>
+          <small>{{ s.createdAt?.slice(5, 16).replace('T', ' ') }}</small>
+          <el-icon title="删除会话" @click.stop="remove(s.id)"><Delete /></el-icon>
+        </button>
+      </div>
+    </aside>
+
+    <section class="chat-main">
+      <header class="chat-header">
+        <div class="chat-header-left">
+          <button class="session-toggle mobile-only" @click="sessionPaneVisible = !sessionPaneVisible">
+            <el-icon><Expand /></el-icon>
+          </button>
+          <div class="header-info">
+            <strong>{{ orchard?.name }}</strong>
+            <span>{{ orchard?.currentPhenology }} · RAG 已连接</span>
+          </div>
+        </div>
+        <span class="status-pill">Agent 在线</span>
+      </header>
+
+      <div ref="scrollRef" class="messages">
+        <div v-if="!messages.length" class="chat-empty">
+          <div class="olive-seal">榄</div>
+          <h2>今天需要了解什么？</h2>
+          <div class="suggestions">
+            <button
+              @click="
+                question = '未来两天有大雨，幼果期是否需要灌溉和施肥？'
+                send()
+              "
+            >
+              雨前水肥安排
+            </button>
+            <button
+              @click="
+                question = '300株橄榄树，每株施肥12千克，总量是多少？'
+                send()
+              "
+            >
+              肥料总量计算
+            </button>
+            <button
+              @click="
+                question = '近期幼果落果较多，应先检查什么？'
+                send()
+              "
+            >
+              幼果落果排查
+            </button>
+          </div>
+        </div>
+
+        <article
+          v-for="(m, i) in messages"
+          :key="i"
+          :class="['message', m.role]"
+        >
+          <div class="avatar">{{ m.role === 'user' ? '我' : '榄' }}</div>
+          <div class="message-body">
+            <div class="message-label">
+              {{ m.role === 'user' ? '我的问题' : '榄园知行 Agent' }}
+            </div>
+            <div class="message-content">
+              {{ m.content }}<span v-if="m.streaming" class="cursor"></span>
+            </div>
+
+            <div v-if="m.tools?.length" class="tool-list">
+              <span
+                v-for="t in m.tools"
+                :key="t.name + '-' + t.status"
+                :class="['tool-chip', (t.status || '').toLowerCase()]"
+              >
+                <el-icon v-if="t.status === 'RUNNING'" class="is-loading">
+                  <Loading />
+                </el-icon>
+                <el-icon v-else-if="t.status === 'SUCCESS'"><Check /></el-icon>
+                <el-icon v-else><Close /></el-icon>
+                {{ t.summary || t.name }}
+              </span>
+            </div>
+
+            <details v-if="m.citations?.length" class="citations">
+              <summary>
+                <el-icon><Document /></el-icon>
+                {{ m.citations.length }} 条知识来源
+              </summary>
+              <div
+                v-for="c in m.citations"
+                :key="
+                  (c.documentId || '') +
+                  '-' +
+                  (c.chunkId || c.chunkNo || c.page || '')
+                "
+              >
+                <strong>
+                  {{ c.documentName || '未知来源' }} ·
+                  {{ c.page ? '第 ' + c.page + ' 页' : '片段 ' + (c.chunkId || c.chunkNo || '—') }}
+                </strong>
+                <p>{{ c.quote || c.content }}</p>
+              </div>
+            </details>
+          </div>
+        </article>
+      </div>
+
+      <footer class="composer">
+        <el-input
+          v-model="question"
+          type="textarea"
+          :autosize="{ minRows: 2, maxRows: 5 }"
+          placeholder="输入果园管理问题…"
+          resize="none"
+          @keydown.ctrl.enter="send"
+        />
+        <button
+          v-if="sending"
+          class="send-button stop"
+          title="停止生成"
+          @click="stop"
+        >
+          <el-icon><VideoPause /></el-icon>
+        </button>
+        <button
+          v-else
+          class="send-button"
+          title="发送"
+          :disabled="!question.trim()"
+          @click="send"
+        >
+          <el-icon><Promotion /></el-icon>
+        </button>
+      </footer>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.chat-workspace {
+  height: calc(100vh - 140px);
+  min-height: 600px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  overflow: hidden;
+}
+.session-pane {
+  background: #f7f9f7;
+  border-right: 1px solid var(--line);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.session-empty {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px 0;
+}
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+}
+.session-list button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 6px;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  padding: 11px;
+  text-align: left;
+  color: var(--ink);
+  position: relative;
+}
+.session-list button.active,
+.session-list button:hover {
+  background: #e7eee9;
+}
+.session-list span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.session-list small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.session-list .el-icon {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  color: #88948d;
+  align-self: center;
+  padding: 4px;
+  border-radius: 4px;
+}
+.session-list .el-icon:hover {
+  background: #dce5df;
+  color: var(--red);
+}
+.chat-main {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 64px 1fr auto;
+}
+.chat-header {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+.chat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.session-toggle {
+  display: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 5px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.session-toggle:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-header strong {
+  font-size: 13px;
+}
+.chat-header span:not(.status-pill) {
+  font-size: 10px;
+  color: var(--muted);
+}
+.messages {
+  overflow: auto;
+  padding: 20px max(20px, 8%);
+}
+.chat-empty {
+  display: grid;
+  place-items: center;
+  padding-top: 10vh;
+  text-align: center;
+}
+.olive-seal {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  background: #e7efe9;
+  color: var(--green);
+  font: 700 25px serif;
+  border-radius: 6px;
+}
+.chat-empty h2 {
+  font-size: 20px;
+  margin: 16px;
+}
+.suggestions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.suggestions button {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 5px;
+  padding: 9px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.suggestions button:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.message {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+  background: #e8ede9;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.assistant .avatar {
+  background: var(--green);
+  color: white;
+  font-family: serif;
+}
+.message-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 7px;
+}
+.message-content {
+  white-space: pre-wrap;
+  line-height: 1.8;
+  font-size: 14px;
+}
+.user .message-content {
+  display: inline-block;
+  background: #f1f4f1;
+  border-radius: 5px;
+  padding: 10px 13px;
+}
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 15px;
+  background: var(--green);
+  margin-left: 3px;
+  vertical-align: middle;
+  animation: blink 1s infinite;
+}
+.tool-list {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.tool-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  padding: 5px 8px;
+  border-radius: 4px;
+}
+.tool-chip.running {
+  background: #eef4ef;
+  color: var(--green);
+}
+.tool-chip.success {
+  background: #edf4ef;
+  color: var(--green);
+}
+.tool-chip.failed,
+.tool-chip.error {
+  background: #f9eceb;
+  color: var(--red);
+}
+.citations {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.citations summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-size: 11px;
+  cursor: pointer;
+}
+.citations div {
+  background: #f7f9f7;
+  border-left: 3px solid #a9c56d;
+  margin-top: 8px;
+  padding: 10px;
+}
+.citations strong {
+  font-size: 11px;
+}
+.citations p {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 5px 0 0;
+}
+.composer {
+  border-top: 1px solid var(--line);
+  padding: 14px max(20px, 8%);
+  display: grid;
+  grid-template-columns: 1fr 42px;
+  gap: 10px;
+  align-items: end;
+}
+.send-button {
+  height: 42px;
+  width: 42px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--green);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.send-button.stop {
+  background: var(--red);
+}
+.send-button:disabled {
+  opacity: 0.45;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 800px) {
+  .chat-workspace {
+    grid-template-columns: 1fr;
+    height: calc(100vh - 116px);
+  }
+  .session-pane {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 230px;
+    z-index: 10;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  }
+  .session-pane.show {
+    transform: translateX(0);
+  }
+  .session-toggle {
+    display: grid;
+  }
+  .messages {
+    padding: 16px;
+  }
+  .composer {
+    padding: 12px;
+  }
+  .chat-header {
+    padding: 0 14px;
+  }
+}
+</style>
