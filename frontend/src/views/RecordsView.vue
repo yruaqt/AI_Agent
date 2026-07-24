@@ -1,7 +1,572 @@
 <script setup lang="ts">
-import{onMounted,reactive,ref}from'vue';import api,{unwrap}from'@/api';import type{Orchard,PageData}from'@/types';import{Plus,Refresh}from'@element-plus/icons-vue';import{ElMessage}from'element-plus'
-const orchard=ref<Orchard|null>(null),records=ref<any[]>([]),dialog=ref(false),loading=ref(false),form=reactive({orchardId:'',recordDate:new Date().toISOString().slice(0,10),sampledTrees:30,abnormalTrees:0,phenomenon:'',measures:''})
-async function load(){loading.value=true;try{const o=unwrap<PageData<Orchard>>(await api.get('/orchards'));orchard.value=o.items[0];if(orchard.value){form.orchardId=orchard.value.id;records.value=unwrap<PageData<any>>(await api.get(`/training-records?orchardId=${orchard.value.id}&pageSize=50`)).items}}finally{loading.value=false}}
-async function submit(){await api.post('/training-records',form);ElMessage.success('实训记录已提交');dialog.value=false;form.phenomenon='';form.measures='';await load()}onMounted(load)
-</script><template><div><div class="page-title-row"><div><h2>实训记录</h2><p>{{orchard?.name}} · 现场数据与处理过程</p></div><div class="toolbar"><el-button :icon="Refresh" @click="load">刷新</el-button><el-button type="primary" :icon="Plus" @click="dialog=true">新增记录</el-button></div></div><section class="panel" v-loading="loading"><el-table :data="records" stripe><el-table-column prop="recordDate" label="日期" width="120"/><el-table-column label="抽查数据" width="150"><template #default="{row}"><strong>{{row.sampledTrees||0}}</strong> 株 / 异常 <span class="priority-high">{{row.abnormalTrees||0}}</span></template></el-table-column><el-table-column prop="phenomenon" label="现场现象" min-width="240" show-overflow-tooltip/><el-table-column prop="measures" label="处理措施" min-width="220" show-overflow-tooltip/><el-table-column label="教师评价" min-width="190"><template #default="{row}"><span v-if="row.teacherComment">{{row.teacherComment}}</span><span v-else class="muted">待评价</span></template></el-table-column><el-table-column prop="createdAt" label="提交时间" width="180"/></el-table></section><el-dialog v-model="dialog" title="新增实训记录" width="min(560px,92vw)"><el-form label-position="top"><div class="form-grid"><el-form-item label="日期"><el-date-picker v-model="form.recordDate" value-format="YYYY-MM-DD"/></el-form-item><el-form-item label="抽查株数"><el-input-number v-model="form.sampledTrees" :min="1"/></el-form-item><el-form-item label="异常株数"><el-input-number v-model="form.abnormalTrees" :min="0" :max="form.sampledTrees"/></el-form-item></div><el-form-item label="现场现象"><el-input v-model="form.phenomenon" type="textarea" :rows="3"/></el-form-item><el-form-item label="处理措施"><el-input v-model="form.measures" type="textarea" :rows="3"/></el-form-item></el-form><template #footer><el-button @click="dialog=false">取消</el-button><el-button type="primary" @click="submit">提交记录</el-button></template></el-dialog></div></template><style scoped>.form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}.priority-high{color:var(--red);font-weight:700}@media(max-width:600px){.form-grid{grid-template-columns:1fr}}</style>
+import { onMounted, reactive, ref, computed } from 'vue'
+import api, { unwrap } from '@/api'
+import type { Orchard, PageData, TrainingRecord, TrainingRecordCreate, TrainingRecordReview, Task } from '@/types'
+import { useAuthStore } from '@/stores/auth'
+import { Plus, Refresh, View, Edit, Check, Filter, Star } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
+const auth = useAuthStore()
+
+const orchard = ref<Orchard | null>(null)
+const records = ref<TrainingRecord[]>([])
+const tasks = ref<Task[]>([])
+const loading = ref(false)
+
+const dialog = ref(false)
+const detailVisible = ref(false)
+const editVisible = ref(false)
+const reviewVisible = ref(false)
+
+const currentRecord = ref<TrainingRecord | null>(null)
+const editRecord = ref<TrainingRecord | null>(null)
+const reviewRecord = ref<TrainingRecord | null>(null)
+
+const searchForm = reactive({
+  orchardId: '',
+  startDate: '',
+  endDate: '',
+  studentId: ''
+})
+
+const form = reactive<TrainingRecordCreate>({
+  orchardId: '',
+  recordDate: new Date().toISOString().slice(0, 10),
+  inspectedTreeCount: 30,
+  abnormalTreeCount: 0,
+  phenomenon: '',
+  measure: '',
+  result: ''
+})
+
+const reviewForm = reactive<TrainingRecordReview>({
+  score: 85,
+  comment: '',
+  status: 'APPROVED'
+})
+
+const statusText: Record<string, string> = {
+  PENDING: '待评价',
+  APPROVED: '已通过',
+  REJECTED: '已退回'
+}
+
+const statusTagType = (status: string): any => {
+  const map: Record<string, any> = {
+    PENDING: 'info',
+    APPROVED: 'success',
+    REJECTED: 'danger'
+  }
+  return map[status] || ''
+}
+
+const filteredRecords = computed(() => {
+  return records.value.filter(r => {
+    if (searchForm.startDate && r.recordDate < searchForm.startDate) return false
+    if (searchForm.endDate && r.recordDate > searchForm.endDate) return false
+    if (searchForm.studentId && r.studentId !== searchForm.studentId) return false
+    return true
+  })
+})
+
+async function load() {
+  loading.value = true
+  try {
+    const o = unwrap<PageData<Orchard>>(await api.get('/orchards'))
+    orchard.value = o.items[0]
+    if (orchard.value) {
+      searchForm.orchardId = orchard.value.id
+      form.orchardId = orchard.value.id
+
+      records.value = unwrap<PageData<TrainingRecord>>(
+        await api.get('/training-records', {
+          params: { orchardId: orchard.value.id, pageSize: 50 }
+        })
+      ).items
+
+      tasks.value = unwrap<PageData<Task>>(
+        await api.get('/tasks', {
+          params: { orchardId: orchard.value.id, pageSize: 50 }
+        })
+      ).items
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleSearch() {
+  load()
+}
+
+function resetSearch() {
+  searchForm.startDate = ''
+  searchForm.endDate = ''
+  searchForm.studentId = ''
+  load()
+}
+
+async function submit() {
+  await api.post('/training-records', form)
+  ElMessage.success('实训记录已提交')
+  dialog.value = false
+  resetForm()
+  await load()
+}
+
+function resetForm() {
+  form.recordDate = new Date().toISOString().slice(0, 10)
+  form.inspectedTreeCount = 30
+  form.abnormalTreeCount = 0
+  form.phenomenon = ''
+  form.measure = ''
+  form.result = ''
+}
+
+function openDetail(record: TrainingRecord) {
+  currentRecord.value = record
+  detailVisible.value = true
+}
+
+function openEdit(record: TrainingRecord) {
+  if (!auth.isAdmin && record.studentId !== auth.user?.id) {
+    ElMessage.warning('您只能编辑自己的实训记录')
+    return
+  }
+  if (record.status === 'APPROVED') {
+    ElMessage.warning('教师已评价的记录无法修改')
+    return
+  }
+  editRecord.value = { ...record }
+  editVisible.value = true
+}
+
+async function saveEdit() {
+  if (!editRecord.value?.id) return
+  try {
+    await api.put(`/training-records/${editRecord.value.id}`, {
+      recordDate: editRecord.value.recordDate,
+      inspectedTreeCount: editRecord.value.inspectedTreeCount,
+      abnormalTreeCount: editRecord.value.abnormalTreeCount,
+      phenomenon: editRecord.value.phenomenon,
+      measure: editRecord.value.measure,
+      result: editRecord.value.result
+    })
+    ElMessage.success('实训记录已更新')
+    editVisible.value = false
+    await load()
+  } catch {
+    // api 拦截器已处理错误提示
+  }
+}
+
+function openReview(record: TrainingRecord) {
+  if (!auth.isAdmin) {
+    ElMessage.warning('只有教师可以评价实训记录')
+    return
+  }
+  reviewRecord.value = record
+  reviewForm.score = record.score || 85
+  reviewForm.comment = record.teacherComment || ''
+  reviewForm.status = record.status === 'REJECTED' ? 'REJECTED' : 'APPROVED'
+  reviewVisible.value = true
+}
+
+async function submitReview() {
+  if (!reviewRecord.value?.id) return
+  try {
+    await api.post(`/training-records/${reviewRecord.value.id}/review`, reviewForm)
+    ElMessage.success('评价已提交')
+    reviewVisible.value = false
+    await load()
+  } catch {
+    // api 拦截器已处理错误提示
+  }
+}
+
+onMounted(load)
+</script>
+
+<template>
+  <div>
+    <div class="page-title-row">
+      <div>
+        <h2>实训记录</h2>
+        <p>{{ orchard?.name || '请选择果园' }} · {{ records.length }} 条记录</p>
+      </div>
+      <div class="toolbar">
+        <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button type="primary" :icon="Plus" @click="dialog = true">新增记录</el-button>
+      </div>
+    </div>
+
+    <section class="panel" style="margin-bottom: 18px;">
+      <div class="panel-body">
+        <div class="filter-row">
+          <el-date-picker
+            v-model="searchForm.startDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="开始日期"
+            style="width: 150px;"
+          />
+          <el-date-picker
+            v-model="searchForm.endDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="结束日期"
+            style="width: 150px;"
+          />
+          <el-button :icon="Filter" @click="handleSearch">筛选</el-button>
+          <el-button link @click="resetSearch">重置</el-button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" v-loading="loading">
+      <el-empty v-if="filteredRecords.length === 0" description="暂无实训记录" style="padding: 48px 0;" />
+      <el-table v-else :data="filteredRecords" stripe>
+        <el-table-column prop="recordDate" label="日期" width="120" />
+        <el-table-column label="抽查数据" width="150">
+          <template #default="{ row }">
+            <strong>{{ row.inspectedTreeCount || 0 }}</strong> 株 / 异常
+            <span class="priority-high">{{ row.abnormalTreeCount || 0 }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="phenomenon" label="现场现象" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="measure" label="处理措施" min-width="220" show-overflow-tooltip />
+        <el-table-column label="提交人" width="100">
+          <template #default="{ row }">
+            {{ row.studentName || '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status || 'PENDING')" effect="plain" size="small">
+              {{ statusText[row.status || 'PENDING'] }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="评分" width="90">
+          <template #default="{ row }">
+            <span v-if="row.score !== undefined" class="score">
+              <el-icon style="color: var(--amber);"><Star /></el-icon>
+              {{ row.score }}
+            </span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="teacherComment" label="教师评语" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="createdAt" label="提交时间" width="180" />
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" link :icon="View" @click="openDetail(row)">详情</el-button>
+            <el-button
+              v-if="(auth.isAdmin || row.studentId === auth.user?.id) && row.status !== 'APPROVED'"
+              size="small"
+              link
+              :icon="Edit"
+              @click="openEdit(row)"
+            >编辑</el-button>
+            <el-button
+              v-if="auth.isAdmin"
+              size="small"
+              link
+              :icon="Check"
+              @click="openReview(row)"
+            >评价</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+
+    <el-dialog v-model="dialog" title="新增实训记录" width="min(560px, 92vw)" destroy-on-close>
+      <el-form label-position="top">
+        <div class="form-grid">
+          <el-form-item label="日期">
+            <el-date-picker v-model="form.recordDate" value-format="YYYY-MM-DD" />
+          </el-form-item>
+          <el-form-item label="抽查株数">
+            <el-input-number v-model="form.inspectedTreeCount" :min="1" />
+          </el-form-item>
+          <el-form-item label="异常株数">
+            <el-input-number v-model="form.abnormalTreeCount" :min="0" :max="form.inspectedTreeCount" />
+          </el-form-item>
+        </div>
+        <el-form-item label="关联任务">
+          <el-select v-model="form.taskId" placeholder="选择任务（可选）" style="width: 100%;">
+            <el-option
+              v-for="task in tasks"
+              :key="task.id"
+              :label="task.title"
+              :value="task.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="现场现象">
+          <el-input v-model="form.phenomenon" type="textarea" :rows="3" placeholder="描述观察到的现象" />
+        </el-form-item>
+        <el-form-item label="处理措施">
+          <el-input v-model="form.measure" type="textarea" :rows="3" placeholder="描述采取的措施" />
+        </el-form-item>
+        <el-form-item label="处理结果">
+          <el-input v-model="form.result" type="textarea" :rows="2" placeholder="描述处理结果（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialog = false">取消</el-button>
+        <el-button type="primary" @click="submit">提交记录</el-button>
+      </template>
+    </el-dialog>
+
+    <el-drawer v-model="detailVisible" title="实训记录详情" size="480px" destroy-on-close>
+      <div v-if="currentRecord" class="record-detail">
+        <div class="detail-header">
+          <el-tag :type="statusTagType(currentRecord.status || 'PENDING')" size="small">
+            {{ statusText[currentRecord.status || 'PENDING'] }}
+          </el-tag>
+          <span v-if="currentRecord.score !== undefined" class="score-badge">
+            <el-icon style="color: var(--amber);"><Star /></el-icon>
+            {{ currentRecord.score }}分
+          </span>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-label">日期</div>
+          <div class="detail-value">{{ currentRecord.recordDate }}</div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-label">果园</div>
+          <div class="detail-value">{{ currentRecord.orchardName || '—' }}</div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-label">关联任务</div>
+          <div class="detail-value">{{ currentRecord.taskTitle || '—' }}</div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-label">抽查数据</div>
+          <div class="detail-value">
+            抽查 <strong>{{ currentRecord.inspectedTreeCount }}</strong> 株，异常
+            <strong class="priority-high">{{ currentRecord.abnormalTreeCount }}</strong> 株
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-label">现场现象</div>
+          <div class="detail-value" style="line-height: 1.7;">{{ currentRecord.phenomenon }}</div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-label">处理措施</div>
+          <div class="detail-value" style="line-height: 1.7;">{{ currentRecord.measure }}</div>
+        </div>
+
+        <div class="detail-section" v-if="currentRecord.result">
+          <div class="detail-label">处理结果</div>
+          <div class="detail-value" style="line-height: 1.7;">{{ currentRecord.result }}</div>
+        </div>
+
+        <div class="detail-section">
+          <div class="detail-label">提交人</div>
+          <div class="detail-value">{{ currentRecord.studentName || '—' }}</div>
+        </div>
+
+        <div v-if="currentRecord.teacherComment" class="detail-section review-section">
+          <div class="detail-label">
+            <el-icon><Star /></el-icon> 教师评语
+          </div>
+          <div class="detail-value" style="line-height: 1.7;">{{ currentRecord.teacherComment }}</div>
+        </div>
+
+        <div class="detail-actions" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);">
+          <el-button
+            v-if="(auth.isAdmin || currentRecord.studentId === auth.user?.id) && currentRecord.status !== 'APPROVED'"
+            type="primary"
+            :icon="Edit"
+            @click="detailVisible = false; openEdit(currentRecord)"
+          >
+            编辑记录
+          </el-button>
+          <el-button
+            v-if="auth.isAdmin"
+            :icon="Check"
+            @click="detailVisible = false; openReview(currentRecord)"
+          >
+            教师评价
+          </el-button>
+        </div>
+      </div>
+    </el-drawer>
+
+    <el-dialog v-model="editVisible" title="编辑实训记录" width="min(560px, 92vw)" destroy-on-close>
+      <el-form v-if="editRecord" label-position="top">
+        <div class="form-grid">
+          <el-form-item label="日期">
+            <el-date-picker v-model="editRecord.recordDate" value-format="YYYY-MM-DD" />
+          </el-form-item>
+          <el-form-item label="抽查株数">
+            <el-input-number v-model="editRecord.inspectedTreeCount" :min="1" />
+          </el-form-item>
+          <el-form-item label="异常株数">
+            <el-input-number v-model="editRecord.abnormalTreeCount" :min="0" :max="editRecord.inspectedTreeCount" />
+          </el-form-item>
+        </div>
+        <el-form-item label="现场现象">
+          <el-input v-model="editRecord.phenomenon" type="textarea" :rows="3" placeholder="描述观察到的现象" />
+        </el-form-item>
+        <el-form-item label="处理措施">
+          <el-input v-model="editRecord.measure" type="textarea" :rows="3" placeholder="描述采取的措施" />
+        </el-form-item>
+        <el-form-item label="处理结果">
+          <el-input v-model="editRecord.result" type="textarea" :rows="2" placeholder="描述处理结果（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveEdit">保存修改</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="reviewVisible" title="教师评价" width="500px" destroy-on-close>
+      <div v-if="reviewRecord" style="margin-bottom: 16px;">
+        <p style="margin: 0 0 12px; font-size: 13px; color: var(--muted);">
+          评价记录：<strong>{{ reviewRecord.phenomenon }}</strong>
+        </p>
+      </div>
+      <el-form label-width="80px">
+        <el-form-item label="评分">
+          <div class="score-input">
+            <el-slider
+              v-model="reviewForm.score"
+              :min="0"
+              :max="100"
+              :step="1"
+              show-input
+              style="flex: 1;"
+            />
+          </div>
+        </el-form-item>
+        <el-form-item label="评价状态">
+          <el-radio-group v-model="reviewForm.status">
+            <el-radio-button label="APPROVED">通过</el-radio-button>
+            <el-radio-button label="REJECTED">退回</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="评语">
+          <el-input
+            v-model="reviewForm.comment"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入评语"
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reviewVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitReview">提交评价</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<style scoped>
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.priority-high {
+  color: var(--red);
+  font-weight: 700;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.score {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.record-detail {
+  padding: 4px 8px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.score-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--lime-light);
+  color: #7a9442;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.detail-section {
+  margin-bottom: 16px;
+}
+
+.detail-section.review-section {
+  background: var(--green-light);
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.detail-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-value {
+  font-size: 14px;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.score-input {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+@media (max-width: 600px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

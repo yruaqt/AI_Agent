@@ -149,3 +149,42 @@ export interface PhenologyRecord {
   remark: string
   createdAt?: string
 }
+
+// 实训记录相关类型
+export interface TrainingRecord {
+  id: string
+  orchardId: string
+  orchardName?: string
+  taskId?: string
+  taskTitle?: string
+  recordDate: string
+  inspectedTreeCount: number
+  abnormalTreeCount: number
+  phenomenon: string
+  measure: string
+  result?: string
+  studentId: string
+  studentName?: string
+  score?: number
+  teacherComment?: string
+  status?: 'PENDING' | 'APPROVED' | 'REJECTED'
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface TrainingRecordCreate {
+  orchardId: string
+  taskId?: string
+  recordDate: string
+  inspectedTreeCount: number
+  abnormalTreeCount: number
+  phenomenon: string
+  measure: string
+  result?: string
+}
+
+export interface TrainingRecordReview {
+  score: number
+  comment: string
+  status: 'APPROVED' | 'REJECTED'
+}
