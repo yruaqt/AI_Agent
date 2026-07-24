@@ -5,6 +5,7 @@ export interface User {
   displayName: string
   role: 'ADMIN' | 'STUDENT'
   status: 'ENABLED' | 'DISABLED'
+  createdAt?: string
 }
 
 export interface LoginResult {
