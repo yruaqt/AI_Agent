@@ -118,7 +118,6 @@ function handleUserCommand(command: string) {
 }
 
 onMounted(() => {
-  auth.load().catch(() => {})
   const savedId = localStorage.getItem('currentOrchardId')
   if (savedId) {
     currentOrchard.value = { id: savedId } as Orchard
