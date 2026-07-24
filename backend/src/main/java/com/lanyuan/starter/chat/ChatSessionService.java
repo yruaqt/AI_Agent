@@ -41,10 +41,25 @@ public class ChatSessionService {
         return repository.findForUser(currentUser.id(), orchardId, pageable);
     }
 
+    /**
+     * 查询历史和删除会话时允许会话所有者或管理员访问。
+     */
     public ChatSession requireAccessible(Long sessionId) {
         ChatSession value = findActive(sessionId);
         if (!value.getUserId().equals(currentUser.id()) && !currentUser.isAdmin()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该会话");
+        }
+        return value;
+    }
+
+    /**
+     * 发送消息和停止生成会改变会话内容，只允许会话所有者操作。
+     * 管理员可以审查或删除他人会话，但不能冒充所有者继续对话。
+     */
+    public ChatSession requireOwner(Long sessionId) {
+        ChatSession value = findActive(sessionId);
+        if (!value.getUserId().equals(currentUser.id())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只有会话所有者可以执行此操作");
         }
         return value;
     }

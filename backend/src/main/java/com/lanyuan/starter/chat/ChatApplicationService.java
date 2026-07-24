@@ -191,7 +191,7 @@ public class ChatApplicationService {
      * 因此底层 HTTP 请求可能自行结束，但后续 Token 不会再写入消息或 SSE。
      */
     public GenerationStopResult stopGeneration(Long sessionId) {
-        sessionService.requireAccessible(sessionId);
+        sessionService.requireOwner(sessionId);
         StopHandle handle = activeGenerations.get(sessionId);
         if (handle == null) {
             return new GenerationStopResult(false, "当前会话没有正在生成的回答");
@@ -207,7 +207,7 @@ public class ChatApplicationService {
         if (message == null || message.isBlank()) {
             throw new IllegalArgumentException("message 不能为空");
         }
-        ChatSession session = sessionService.requireAccessible(sessionId);
+        ChatSession session = sessionService.requireOwner(sessionId);
         if (!AgentInvocationContext.begin(sessionId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "该会话正在生成回答，请稍后重试");
         }
