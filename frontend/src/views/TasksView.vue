@@ -270,7 +270,7 @@ onMounted(load)
         <h2>{{ date }} 农事安排</h2>
         <p>{{ orchard?.name || '请选择果园' }} · {{ tasks.length }} 项任务</p>
       </div>
-      <div class="toolbar">
+      <div class="toolbar tasks-toolbar">
         <el-date-picker
           v-model="date"
           type="date"
@@ -405,7 +405,7 @@ onMounted(load)
     </section>
 
     <!-- 任务详情抽屉 -->
-    <el-drawer v-model="detailVisible" title="任务详情" size="460px" destroy-on-close>
+    <el-drawer v-model="detailVisible" title="任务详情" size="min(460px, 92vw)" destroy-on-close>
       <div v-if="currentTask" class="task-detail">
         <div class="detail-header">
           <el-tag :type="statusTagType(currentTask.status)" size="small">
@@ -478,7 +478,7 @@ onMounted(load)
     </el-drawer>
 
     <!-- 编辑弹窗 -->
-    <el-dialog v-model="editVisible" title="编辑任务" width="560px" destroy-on-close>
+    <el-dialog v-model="editVisible" title="编辑任务" width="min(560px, 92vw)" destroy-on-close>
       <el-form v-if="editForm" label-width="80px" style="margin-top: 8px;">
         <el-form-item label="任务标题">
           <el-input v-model="editForm.title" placeholder="请输入任务标题" maxlength="100" show-word-limit />
@@ -521,7 +521,7 @@ onMounted(load)
     </el-dialog>
 
     <!-- 状态流转备注弹窗 -->
-    <el-dialog v-model="statusRemarkVisible" title="状态变更备注" width="420px" destroy-on-close>
+    <el-dialog v-model="statusRemarkVisible" title="状态变更备注" width="min(420px, 92vw)" destroy-on-close>
       <p style="margin: 0 0 12px; font-size: 13px; color: var(--muted);">
         将任务 <strong>{{ pendingStatusChange?.task.title }}</strong>
         变更为 <strong>{{ statusText[pendingStatusChange?.status || ''] }}</strong>
@@ -602,5 +602,67 @@ onMounted(load)
 
 .muted {
   color: var(--muted);
+}
+
+/* 移动端适配 */
+@media (max-width: 760px) {
+  .tasks-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .tasks-toolbar .el-date-editor {
+    width: 100% !important;
+    margin-bottom: 4px;
+  }
+
+  .tasks-toolbar .el-button {
+    flex: 1;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+    margin-bottom: 14px !important;
+  }
+
+  .stat-card {
+    min-height: 68px !important;
+    padding: 10px 8px !important;
+  }
+
+  .stat-card .label {
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  .stat-card strong {
+    font-size: 16px !important;
+  }
+
+  /* 表格横向滚动 */
+  :deep(.el-table) {
+    width: 100% !important;
+    overflow-x: auto;
+  }
+
+  :deep(.el-table__inner-wrapper) {
+    overflow-x: auto;
+  }
+
+  /* 表单标签置顶 */
+  :deep(.el-form--inline .el-form-item),
+  :deep(.el-form-item) {
+    margin-bottom: 12px;
+  }
+
+  .detail-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .detail-actions .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
 }
 </style>

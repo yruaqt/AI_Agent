@@ -208,14 +208,12 @@ onMounted(load)
             type="date"
             value-format="YYYY-MM-DD"
             placeholder="开始日期"
-            style="width: 150px;"
           />
           <el-date-picker
             v-model="searchForm.endDate"
             type="date"
             value-format="YYYY-MM-DD"
             placeholder="结束日期"
-            style="width: 150px;"
           />
           <el-button :icon="Filter" @click="handleSearch">筛选</el-button>
           <el-button link @click="resetSearch">重置</el-button>
@@ -319,7 +317,7 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="实训记录详情" size="480px" destroy-on-close>
+    <el-drawer v-model="detailVisible" title="实训记录详情" size="min(480px, 92vw)" destroy-on-close>
       <div v-if="currentRecord" class="record-detail">
         <div class="detail-header">
           <el-tag :type="statusTagType(currentRecord.status || 'PENDING')" size="small">
@@ -430,13 +428,13 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="reviewVisible" title="教师评价" width="500px" destroy-on-close>
+    <el-dialog v-model="reviewVisible" title="教师评价" width="min(500px, 92vw)" destroy-on-close>
       <div v-if="reviewRecord" style="margin-bottom: 16px;">
         <p style="margin: 0 0 12px; font-size: 13px; color: var(--muted);">
           评价记录：<strong>{{ reviewRecord.phenomenon }}</strong>
         </p>
       </div>
-      <el-form label-width="80px">
+      <el-form label-position="top">
         <el-form-item label="评分">
           <div class="score-input">
             <el-slider
@@ -445,7 +443,6 @@ onMounted(load)
               :max="100"
               :step="1"
               show-input
-              style="flex: 1;"
             />
           </div>
         </el-form-item>
@@ -562,6 +559,55 @@ onMounted(load)
   display: flex;
   align-items: center;
   width: 100%;
+  gap: 12px;
+}
+
+.score-input :deep(.el-slider) {
+  flex: 1;
+}
+
+/* 移动端适配 */
+@media (max-width: 760px) {
+  .filter-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .filter-row .el-date-editor {
+    flex: 1;
+    min-width: 130px;
+  }
+
+  .filter-row .el-button {
+    flex: 1;
+    min-width: 80px;
+  }
+
+  /* 表格横向滚动 */
+  :deep(.el-table) {
+    width: 100% !important;
+    overflow-x: auto;
+  }
+
+  :deep(.el-table__inner-wrapper) {
+    overflow-x: auto;
+  }
+
+  .detail-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .detail-actions .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
+  .score-input {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
 }
 
 @media (max-width: 600px) {
