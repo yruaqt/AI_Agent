@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed } from 'vue'
 import api, { unwrap } from '@/api'
-import { Operation, Watering, Coin, MagicStick, TrendCharts } from '@element-plus/icons-vue'
+import { Operation, Bowl, Coin, MagicStick, TrendCharts } from '@element-plus/icons-vue'
 
 const active = ref('irrigation')
 const loading = ref(false)
@@ -39,7 +39,7 @@ const configs: Record<string, CalculatorConfig> = {
   irrigation: {
     title: '灌溉量计算',
     endpoint: '/calculators/irrigation',
-    icon: Watering,
+    icon: Bowl,
     description: '按株数与单株用水量计算全园用水量'
   },
   fertilizer: {

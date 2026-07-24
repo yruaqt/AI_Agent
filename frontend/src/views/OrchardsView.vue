@@ -1,386 +1,505 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, computed } from 'vue'
 import api, { unwrap } from '@/api'
-import type { Orchard, PageData, WeatherData, Task, PhenologyRecord } from '@/types'
-import { Edit, Clock, Cloudy, Document, Warning } from '@element-plus/icons-vue'
+import type { Orchard, PageData, PhenologyRecord } from '@/types'
+import {
+  Plus,
+  Edit,
+  Delete,
+  Clock,
+  AddLocation,
+  Cherry,
+  Bowl,
+  Users,
+  Calendar,
+  AlertCircle,
+  Search,
+  Refresh,
+  Check,
+  Close
+} from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const auth = useAuthStore()
-const orchard = ref<Orchard | null>(null)
-const history = ref<PhenologyRecord[]>([])
-const weather = ref<WeatherData | null>(null)
-const tasks = ref<Task[]>([])
-const loading = reactive({ weather: false, tasks: false })
+
+const orchards = ref<Orchard[]>([])
+const loading = ref(false)
+const pagination = reactive({
+  page: 1,
+  pageSize: 15,
+  total: 0
+})
+const search = reactive({
+  keyword: '',
+  status: ''
+})
+
 const dialog = ref(false)
+const dialogType = ref<'create' | 'edit'>('create')
+const form = reactive<any>({
+  name: '',
+  areaMu: 0,
+  treeCount: 0,
+  treeAgeYears: 0,
+  variety: '',
+  plantingMode: '露地栽培',
+  irrigationMode: '滴灌',
+  plantingDate: '',
+  province: '',
+  city: '',
+  district: '',
+  longitude: '',
+  latitude: '',
+  managerName: '',
+  remark: ''
+})
+
 const phenologyDialog = ref(false)
-const form = reactive<any>({})
+const phenologyOrchardId = ref('')
 const phenology = reactive({
-  phenology: 'FRUIT_EXPANSION',
+  phenology: 'FRUIT_EClosePANSION',
   effectiveDate: new Date().toISOString().slice(0, 10),
   remark: ''
 })
 
-// 物候期名称映射
-const names: Record<string, string> = {
+const phenologyHistoryDialog = ref(false)
+const historyOrchardId = ref('')
+const historyData = ref<PhenologyRecord[]>([])
+
+const phenologyNames: Record<string, string> = {
   DORMANCY: '休眠/恢复期',
   SHOOT_GROWTH: '春梢生长期',
   FLOWERING: '开花期',
   FRUIT_SET: '坐果期',
-  FRUIT_EXPANSION: '幼果膨大期',
+  FRUIT_EClosePANSION: '幼果膨大期',
   MATURITY: '成熟期',
   HARVEST: '采收期',
   POST_HARVEST: '采后管理期'
 }
 
-// 任务优先级映射
-const priorityMap: Record<string, { label: string; class: string }> = {
-  HIGH: { label: '高', class: 'priority-high' },
-  MEDIUM: { label: '中', class: 'priority-medium' },
-  LOW: { label: '低', class: 'priority-low' }
+const statusMap: Record<string, { label: string; class: string }> = {
+  ENABLED: { label: '启用', class: 'status-enabled' },
+  DISABLED: { label: '停用', class: 'status-disabled' }
 }
 
-// 任务状态映射
-const taskStatusMap: Record<string, string> = {
-  DRAFT: '草稿',
-  CONFIRMED: '已确认',
-  TODO: '待执行',
-  DOING: '执行中',
-  DONE: '已完成',
-  CANCELLED: '已取消'
-}
+const filteredOrchards = computed(() => {
+  return orchards.value.filter(o => {
+    if (search.status && o.status !== search.status) return false
+    if (search.keyword) {
+      const kw = search.keyword.toLowerCase()
+      return (
+        o.name.toLowerCase().includes(kw) ||
+        o.variety.toLowerCase().includes(kw) ||
+        o.region.toLowerCase().includes(kw) ||
+        o.managerName.toLowerCase().includes(kw)
+      )
+    }
+    return true
+  })
+})
 
-// 加载果园基本信息
-async function load() {
-  const d = unwrap<PageData<Orchard>>(await api.get('/orchards'))
-  orchard.value = d.items[0]
-  if (orchard.value) {
-    Object.assign(form, orchard.value)
-    history.value = unwrap<PageData<PhenologyRecord>>(
-      await api.get(`/orchards/${orchard.value.id}/phenologies`)
-    ).items
-    loadWeather()
-    loadTasks()
-  }
-}
-
-// 加载天气信息
-async function loadWeather() {
-  if (!orchard.value) return
-  loading.weather = true
+async function loadOrchards() {
+  loading.value = true
   try {
-    weather.value = unwrap<WeatherData>(
-      await api.get(`/orchards/${orchard.value.id}/weather?days=3`)
+    const result = unwrap<PageData<Orchard>>(
+      await api.get('/orchards', {
+        params: {
+          page: pagination.page,
+          pageSize: pagination.pageSize,
+          keyword: search.keyword,
+          status: search.status
+        }
+      })
     )
+    orchards.value = result.items
+    pagination.total = result.total
   } catch (e) {
-    console.error('加载天气失败', e)
+    console.error('加载果园列表失败', e)
   } finally {
-    loading.weather = false
+    loading.value = false
   }
 }
 
-// 加载今日任务
-async function loadTasks() {
-  if (!orchard.value) return
-  loading.tasks = true
+async function refresh() {
+  pagination.page = 1
+  loadOrchards()
+}
+
+function openCreateDialog() {
+  dialogType.value = 'create'
+  Object.assign(form, {
+    name: '',
+    areaMu: 0,
+    treeCount: 0,
+    treeAgeYears: 0,
+    variety: '',
+    plantingMode: '露地栽培',
+    irrigationMode: '滴灌',
+    plantingDate: '',
+    province: '',
+    city: '',
+    district: '',
+    longitude: '',
+    latitude: '',
+    managerName: '',
+    remark: ''
+  })
+  dialog.value = true
+}
+
+function openEditDialog(orchard: Orchard) {
+  dialogType.value = 'edit'
+  Object.assign(form, {
+    id: orchard.id,
+    name: orchard.name,
+    areaMu: orchard.areaMu,
+    treeCount: orchard.treeCount,
+    treeAgeYears: orchard.treeAgeYears,
+    variety: orchard.variety,
+    plantingMode: orchard.plantingMode,
+    irrigationMode: orchard.irrigationMode,
+    plantingDate: orchard.plantingDate || '',
+    province: orchard.province,
+    city: orchard.city,
+    district: orchard.district,
+    longitude: orchard.longitude?.toString() || '',
+    latitude: orchard.latitude?.toString() || '',
+    managerName: orchard.managerName,
+    remark: orchard.remark || ''
+  })
+  dialog.value = true
+}
+
+async function saveOrchard() {
+  if (!form.name.trim()) {
+    ElMessage.warning('请输入果园名称')
+    return
+  }
+  if (form.areaMu <= 0) {
+    ElMessage.warning('面积必须大于0')
+    return
+  }
+  if (form.treeCount <= 0) {
+    ElMessage.warning('株数必须大于0')
+    return
+  }
+
+  const data = {
+    ...form,
+    longitude: form.longitude ? parseFloat(form.longitude) : undefined,
+    latitude: form.latitude ? parseFloat(form.latitude) : undefined,
+    region: `${form.province}${form.city}${form.district}`
+  }
+
   try {
-    const today = new Date().toISOString().slice(0, 10)
-    const result = unwrap<PageData<Task>>(
-      await api.get(`/tasks?orchardId=${orchard.value.id}&date=${today}&pageSize=10`)
-    )
-    tasks.value = result.items.filter(t => t.status !== 'CANCELLED' && t.status !== 'DONE')
+    if (dialogType.value === 'create') {
+      await api.post('/orchards', data)
+      ElMessage.success('果园档案创建成功')
+    } else {
+      await api.put(`/orchards/${form.id}`, data)
+      ElMessage.success('果园档案更新成功')
+    }
+    dialog.value = false
+    loadOrchards()
   } catch (e) {
-    console.error('加载任务失败', e)
-  } finally {
-    loading.tasks = false
+    console.error('保存果园失败', e)
   }
 }
 
-// 保存果园档案
-async function save() {
-  if (!orchard.value) return
-  await api.put(`/orchards/${orchard.value.id}`, form)
-  ElMessage.success('果园档案已保存')
-  dialog.value = false
-  load()
+async function toggleStatus(orchard: Orchard) {
+  const newStatus = orchard.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
+  const action = newStatus === 'ENABLED' ? '启用' : '停用'
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要${action}「${orchard.name}」吗？${newStatus === 'DISABLED' ? '停用后将不再生成新任务，但历史数据保留。' : ''}`,
+      '确认操作',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    await api.patch(`/orchards/${orchard.id}/status`, { status: newStatus })
+    ElMessage.success(`${action}成功`)
+    loadOrchards()
+  } catch {
+    ElMessage.info('已取消操作')
+  }
 }
 
-// 保存物候期
+function openPhenologyDialog(orchard: Orchard) {
+  phenologyOrchardId.value = orchard.id
+  phenology.phenology = orchard.currentPhenology || 'FRUIT_EClosePANSION'
+  phenology.effectiveDate = new Date().toISOString().slice(0, 10)
+  phenology.remark = ''
+  phenologyDialog.value = true
+}
+
 async function savePhenology() {
-  if (!orchard.value) return
-  await api.post(`/orchards/${orchard.value.id}/phenologies`, phenology)
-  ElMessage.success('物候期已更新并保留历史')
-  phenologyDialog.value = false
-  load()
+  if (!phenologyOrchardId.value) return
+
+  try {
+    await api.post(`/orchards/${phenologyOrchardId.value}/phenologies`, phenology)
+    ElMessage.success('物候期已更新并保留历史')
+    phenologyDialog.value = false
+    loadOrchards()
+  } catch (e) {
+    console.error('更新物候期失败', e)
+  }
 }
 
-// 格式化时间
-function formatTime(dateStr: string) {
-  const date = new Date(dateStr)
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+async function openHistoryDialog(orchard: Orchard) {
+  historyOrchardId.value = orchard.id
+  try {
+    const result = unwrap<PageData<PhenologyRecord>>(
+      await api.get(`/orchards/${orchard.id}/phenologies`, { params: { pageSize: 50 } })
+    )
+    historyData.value = result.items
+    phenologyHistoryDialog.value = true
+  } catch (e) {
+    console.error('加载物候期历史失败', e)
+    ElMessage.error('加载物候期历史失败')
+  }
 }
 
-// 获取天气图标
-function getWeatherIcon(weather: string): string {
-  if (weather.includes('雨')) return '🌧️'
-  if (weather.includes('雪')) return '🌨️'
-  if (weather.includes('云')) return '⛅'
-  if (weather.includes('晴')) return '☀️'
-  if (weather.includes('阴')) return '☁️'
-  return '🌤️'
+function getRegion(orchard: Orchard) {
+  return `${orchard.province}${orchard.city}${orchard.district}`
 }
 
-onMounted(load)
+onMounted(loadOrchards)
 </script>
 
 <template>
-  <div v-if="orchard" class="orchard-overview">
-    <!-- 页面标题行 -->
-    <div class="page-title-row">
+  <div class="orchards-page">
+    <div class="page-header-row">
       <div>
-        <h2>{{ orchard.name }}</h2>
-        <p>{{ orchard.region }} · {{ orchard.variety }}</p>
+        <h2>果园档案管理</h2>
+        <p>管理果园基础信息与物候期记录</p>
       </div>
       <div v-if="auth.isAdmin" class="toolbar">
-        <el-button :icon="Clock" @click="phenologyDialog = true">更新物候期</el-button>
-        <el-button type="primary" :icon="Edit" @click="dialog = true">编辑档案</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreateDialog">新增果园</el-button>
       </div>
     </div>
 
-    <!-- 果园概况带 -->
-    <div class="orchard-band">
-      <div>
-        <span>面积</span>
-        <strong>{{ orchard.areaMu }} 亩</strong>
+    <div class="search-bar">
+      <div class="search-group">
+        <el-input
+          v-model="search.keyword"
+          :prefix-icon="Search"
+          placeholder="搜索果园名称、品种、地区、负责人"
+          clearable
+          @keyup.enter="refresh"
+        />
       </div>
-      <div>
-        <span>株数</span>
-        <strong>{{ orchard.treeCount }} 株</strong>
-      </div>
-      <div>
-        <span>树龄</span>
-        <strong>{{ orchard.treeAgeYears }} 年</strong>
-      </div>
-      <div>
-        <span>灌溉</span>
-        <strong>{{ orchard.irrigationMode }}</strong>
-      </div>
-      <div>
-        <span>物候期</span>
-        <strong>{{ names[orchard.currentPhenology] }}</strong>
+      <div class="filter-group">
+        <el-select v-model="search.status" placeholder="状态" clearable>
+          <el-option label="启用" value="ENABLED" />
+          <el-option label="停用" value="DISABLED" />
+        </el-select>
+        <el-button :icon="Refresh" @click="refresh">刷新</el-button>
       </div>
     </div>
 
-    <!-- 统计卡片区域 -->
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="label">当前温度</div>
-        <strong v-if="weather">{{ weather.current.temperatureC }}°C</strong>
-        <span v-else class="muted">加载中...</span>
-        <div class="trend" v-if="weather">
-          {{ weather.current.weather }}
-        </div>
+    <div class="panel">
+      <div class="panel-header">
+        <h3>果园列表</h3>
+        <span class="count">共 {{ pagination.total }} 个果园</span>
       </div>
-      <div class="stat-card">
-        <div class="label">风力风向</div>
-        <strong v-if="weather">{{ weather.current.windLevel }}级</strong>
-        <span v-else class="muted">加载中...</span>
-        <div class="trend" v-if="weather">
-          {{ weather.current.windDirection }}风
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="label">今日待办</div>
-        <strong>{{ tasks.length }}</strong>
-        <div class="trend">
-          项农事任务
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="label">数据更新</div>
-        <strong v-if="weather">{{ formatTime(weather.updatedAt) }}</strong>
-        <span v-else class="muted">--</span>
-        <div class="trend" v-if="weather && weather.cached">
-          缓存数据
-        </div>
-      </div>
-    </div>
 
-    <!-- 内容网格 -->
-    <div class="content-grid">
-      <!-- 左侧主要内容 -->
-      <div class="main-columns">
-        <!-- 天气预报 -->
-        <section class="panel">
-          <header class="panel-header">
-            <h3><el-icon><Cloudy /></el-icon> 未来天气</h3>
-          </header>
-          <div class="weather-grid" v-if="weather && weather.forecast.length > 0">
-            <div class="weather-item" v-for="f in weather.forecast" :key="f.date">
-              <div class="weather-date">{{ f.date.slice(5) }}</div>
-              <div class="weather-icon">{{ getWeatherIcon(f.dayWeather) }}</div>
-              <div class="weather-desc">{{ f.dayWeather }}</div>
-              <div class="weather-temp">
-                {{ f.minTemperatureC }}°~{{ f.maxTemperatureC }}°C
-              </div>
-            </div>
-          </div>
-          <el-empty v-else-if="!loading.weather" description="暂无天气数据" :image-size="80" />
-          <div v-else class="loading-placeholder">加载天气数据...</div>
-        </section>
-
-        <!-- 今日任务 -->
-        <section class="panel">
-          <header class="panel-header">
-            <h3><el-icon><Document /></el-icon> 今日农事任务</h3>
-          </header>
-          <div class="task-list" v-if="tasks.length > 0">
-            <div class="task-item" v-for="task in tasks" :key="task.id">
-              <div class="task-header">
-                <span :class="['priority', priorityMap[task.priority]?.class]">
-                  {{ priorityMap[task.priority]?.label }}
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>果园名称</th>
+              <th>面积</th>
+              <th>株数</th>
+              <th>树龄</th>
+              <th>品种</th>
+              <th>地区</th>
+              <th>灌溉方式</th>
+              <th>当前物候期</th>
+              <th>负责人</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="orchard in orchards" :key="orchard.id">
+              <td class="name-cell">
+                <Cherry class="icon" />
+                <span>{{ orchard.name }}</span>
+              </td>
+              <td>{{ orchard.areaMu }} 亩</td>
+              <td>{{ orchard.treeCount }} 株</td>
+              <td>{{ orchard.treeAgeYears }} 年</td>
+              <td>{{ orchard.variety }}</td>
+              <td class="region-cell">
+                <AddLocation class="icon" />
+                <span>{{ getRegion(orchard) }}</span>
+              </td>
+              <td>{{ orchard.irrigationMode }}</td>
+              <td class="phenology-cell">
+                <span class="phenology-tag">{{ phenologyNames[orchard.currentPhenology] || orchard.currentPhenology }}</span>
+              </td>
+              <td>{{ orchard.managerName }}</td>
+              <td>
+                <span :class="['status-badge', statusMap[orchard.status]?.class]">
+                  {{ statusMap[orchard.status]?.label }}
                 </span>
-                <span class="task-status">{{ taskStatusMap[task.status] }}</span>
-              </div>
-              <h4>{{ task.title }}</h4>
-              <p>{{ task.content }}</p>
-              <div class="task-footer">
-                <span class="task-time">建议时间：{{ task.suggestedTime }}</span>
-              </div>
-            </div>
-          </div>
-          <el-empty v-else-if="!loading.tasks" description="今日暂无待办任务" :image-size="80" />
-          <div v-else class="loading-placeholder">加载任务数据...</div>
-        </section>
+              </td>
+              <td class="actions-cell">
+                <div class="actions">
+                  <button
+                    v-if="auth.isAdmin"
+                    class="action-btn edit"
+                    title="编辑档案"
+                    @click="openEditDialog(orchard)"
+                  >
+                    <Edit />
+                  </button>
+                  <button
+                    v-if="auth.isAdmin"
+                    class="action-btn phenology"
+                    title="更新物候期"
+                    @click="openPhenologyDialog(orchard)"
+                  >
+                    <Clock />
+                  </button>
+                  <button
+                    class="action-btn history"
+                    title="物候期历史"
+                    @click="openHistoryDialog(orchard)"
+                  >
+                    <Calendar />
+                  </button>
+                  <button
+                    v-if="auth.isAdmin"
+                    class="action-btn toggle"
+                    :title="orchard.status === 'ENABLED' ? '停用' : '启用'"
+                    @click="toggleStatus(orchard)"
+                  >
+                    <Close v-if="orchard.status === 'ENABLED'" />
+                    <Check v-else />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div v-if="loading" class="loading-overlay">
+          <el-spinner />
+        </div>
+
+        <div v-if="!loading && orchards.length === 0" class="empty-state">
+          <Cherry class="empty-icon" />
+          <p>暂无果园数据</p>
+          <p v-if="auth.isAdmin" class="empty-hint">点击上方「新增果园」创建第一个果园档案</p>
+        </div>
       </div>
 
-      <!-- 右侧栏 -->
-      <div class="side-columns">
-        <!-- 基本档案 -->
-        <section class="panel">
-          <header class="panel-header">
-            <h3>基本档案</h3>
-            <span class="status-pill">{{ orchard.status }}</span>
-          </header>
-          <dl class="detail-list">
-            <div>
-              <dt>品种</dt>
-              <dd>{{ orchard.variety }}</dd>
-            </div>
-            <div>
-              <dt>负责人</dt>
-              <dd>{{ orchard.managerName }}</dd>
-            </div>
-            <div>
-              <dt>所在地区</dt>
-              <dd>{{ orchard.region }}</dd>
-            </div>
-            <div>
-              <dt>种植方式</dt>
-              <dd>露地栽培</dd>
-            </div>
-            <div>
-              <dt>灌溉方式</dt>
-              <dd>{{ orchard.irrigationMode }}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <!-- 物候期历史 -->
-        <section class="panel">
-          <header class="panel-header">
-            <h3>物候期历史</h3>
-          </header>
-          <el-timeline class="timeline">
-            <el-timeline-item
-              v-for="h in history"
-              :key="h.id"
-              :timestamp="h.effectiveDate"
-              placement="top"
-              color="#2e6b4e"
-            >
-              <strong>{{ names[h.phenology] }}</strong>
-              <p>{{ h.remark }}</p>
-            </el-timeline-item>
-          </el-timeline>
-        </section>
-
-        <!-- 风险提示 -->
-        <section class="panel risk-panel">
-          <header class="panel-header">
-            <h3><el-icon><Warning /></el-icon> 风险提示</h3>
-          </header>
-          <div class="risk-content">
-            <p v-if="weather && weather.forecast.some(f => f.dayWeather.includes('雨'))">
-              <strong>降雨提醒：</strong>未来有降雨天气，请注意果园排水，避免积水影响果树生长。
-            </p>
-            <p v-if="tasks.some(t => t.priority === 'HIGH')">
-              <strong>高优先级任务：</strong>有高优先级任务待执行，请及时安排人员处理。
-            </p>
-            <p v-if="weather && weather.current.temperatureC > 35">
-              <strong>高温预警：</strong>当前温度较高，请注意防暑降温，避免高温时段作业。
-            </p>
-            <p v-if="weather && weather.current.temperatureC < 5">
-              <strong>低温预警：</strong>当前温度较低，请注意防寒防冻措施。
-            </p>
-            <p v-if="!weather || (tasks.length === 0 && weather.current.temperatureC >= 5 && weather.current.temperatureC <= 35)">
-              <strong>当前状况良好：</strong>暂无明显风险提示，请保持日常管理。
-            </p>
-          </div>
-        </section>
+      <div class="pagination-bar" v-if="pagination.total > 0">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :total="pagination.total"
+          :page-sizes="[10, 15, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="loadOrchards"
+          @current-change="loadOrchards"
+        />
       </div>
     </div>
 
-    <!-- 编辑档案对话框 -->
-    <el-dialog v-model="dialog" title="编辑果园档案" width="min(680px, 94vw)">
+    <el-dialog
+      v-model="dialog"
+      :title="dialogType === 'create' ? '新增果园档案' : '编辑果园档案'"
+      width="min(720px, 94vw)"
+      destroy-on-close
+    >
       <el-form label-position="top">
-        <div class="edit-grid">
-          <el-form-item label="果园名称">
-            <el-input v-model="form.name" />
+        <div class="form-grid">
+          <el-form-item label="果园名称" required>
+            <el-input v-model="form.name" placeholder="请输入果园名称" />
           </el-form-item>
-          <el-form-item label="所在地区">
-            <el-input v-model="form.region" />
+          <el-form-item label="品种" required>
+            <el-input v-model="form.variety" placeholder="请输入品种名称" />
           </el-form-item>
-          <el-form-item label="面积（亩）">
-            <el-input-number v-model="form.areaMu" :min="0.01" />
+          <el-form-item label="面积（亩）" required>
+            <el-input-number v-model="form.areaMu" :min="0.01" :step="0.1" placeholder="面积" />
           </el-form-item>
-          <el-form-item label="株数">
-            <el-input-number v-model="form.treeCount" :min="1" />
+          <el-form-item label="株数" required>
+            <el-input-number v-model="form.treeCount" :min="1" placeholder="株数" />
           </el-form-item>
-          <el-form-item label="树龄">
-            <el-input-number v-model="form.treeAgeYears" :min="0" />
+          <el-form-item label="树龄（年）">
+            <el-input-number v-model="form.treeAgeYears" :min="0" placeholder="树龄" />
           </el-form-item>
-          <el-form-item label="品种">
-            <el-input v-model="form.variety" />
+          <el-form-item label="种植方式">
+            <el-select v-model="form.plantingMode" style="width: 100%">
+              <el-option label="露地栽培" value="露地栽培" />
+              <el-option label="设施栽培" value="设施栽培" />
+              <el-option label="盆栽" value="盆栽" />
+              <el-option label="其他" value="其他" />
+            </el-select>
           </el-form-item>
           <el-form-item label="灌溉方式">
-            <el-input v-model="form.irrigationMode" />
+            <el-select v-model="form.irrigationMode" style="width: 100%">
+              <el-option label="滴灌" value="滴灌" />
+              <el-option label="喷灌" value="喷灌" />
+              <el-option label="沟灌" value="沟灌" />
+              <el-option label="漫灌" value="漫灌" />
+              <el-option label="人工浇灌" value="人工浇灌" />
+              <el-option label="其他" value="其他" />
+            </el-select>
           </el-form-item>
           <el-form-item label="负责人">
-            <el-input v-model="form.managerName" />
+            <el-input v-model="form.managerName" placeholder="请输入负责人姓名" />
+          </el-form-item>
+          <el-form-item label="省份">
+            <el-input v-model="form.province" placeholder="如：福建省" />
+          </el-form-item>
+          <el-form-item label="城市">
+            <el-input v-model="form.city" placeholder="如：福州市" />
+          </el-form-item>
+          <el-form-item label="区县">
+            <el-input v-model="form.district" placeholder="如：闽侯县" />
+          </el-form-item>
+          <el-form-item label="定植日期">
+            <el-date-picker v-model="form.plantingDate" value-format="YYYY-MM-DD" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="经度">
+            <el-input v-model="form.longitude" type="number" placeholder="经度" />
+          </el-form-item>
+          <el-form-item label="纬度">
+            <el-input v-model="form.latitude" type="number" placeholder="纬度" />
+          </el-form-item>
+          <el-form-item label="备注" :span="2">
+            <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="备注信息" />
           </el-form-item>
         </div>
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" @click="saveOrchard">保存</el-button>
       </template>
     </el-dialog>
 
-    <!-- 更新物候期对话框 -->
-    <el-dialog v-model="phenologyDialog" title="更新物候期" width="min(460px, 92vw)">
+    <el-dialog v-model="phenologyDialog" title="更新物候期" width="min(480px, 92vw)" destroy-on-close>
       <el-form label-position="top">
-        <el-form-item label="物候期">
+        <el-form-item label="物候期" required>
           <el-select v-model="phenology.phenology" style="width: 100%">
             <el-option
-              v-for="(label, key) in names"
+              v-for="(label, key) in phenologyNames"
               :key="key"
               :label="label"
               :value="key"
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="生效日期">
+        <el-form-item label="生效日期" required>
           <el-date-picker
             v-model="phenology.effectiveDate"
             value-format="YYYY-MM-DD"
@@ -388,7 +507,7 @@ onMounted(load)
           />
         </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="phenology.remark" type="textarea" />
+          <el-input v-model="phenology.remark" type="textarea" :rows="3" placeholder="如：教师现场确认进入幼果膨大期" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -396,100 +515,90 @@ onMounted(load)
         <el-button type="primary" @click="savePhenology">确认更新</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="phenologyHistoryDialog" title="物候期历史" width="min(560px, 92vw)" destroy-on-close>
+      <div v-if="historyData.length > 0">
+        <el-timeline class="history-timeline">
+          <el-timeline-item
+            v-for="(item, index) in historyData"
+            :key="item.id"
+            :timestamp="item.effectiveDate"
+            placement="top"
+            :color="index === 0 ? '#2e6b4e' : '#9fbd63'"
+          >
+            <div class="timeline-content">
+              <strong>{{ phenologyNames[item.phenology] || item.phenology }}</strong>
+              <p v-if="item.remark">{{ item.remark }}</p>
+            </div>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
+      <el-empty v-else description="暂无物候期变更记录" :image-size="80" />
+      <template #footer>
+        <el-button @click="phenologyHistoryDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.orchard-overview {
+.orchards-page {
   width: 100%;
 }
 
-.orchard-band {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  background: #24352d;
-  color: white;
-  border-radius: 6px;
-  padding: 20px 8px;
-  margin-bottom: 18px;
-}
-
-.orchard-band > div {
-  padding: 4px 18px;
-  border-right: 1px solid #405249;
+.page-header-row {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
 }
 
-.orchard-band > div:last-child {
-  border: 0;
+.page-header-row h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
 }
 
-.orchard-band span {
-  font-size: 10px;
-  color: #a5b5ac;
+.page-header-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
-.orchard-band strong {
-  font-size: 17px;
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+.search-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 20px;
-}
-
-.stat-card {
+  padding: 16px;
   background: white;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 18px;
-  min-height: 112px;
+}
+
+.search-group {
+  flex: 1;
+  max-width: 520px;
+}
+
+.filter-group {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.stat-card .label {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.stat-card strong {
-  font-size: 26px;
-  line-height: 1;
-}
-
-.stat-card .trend {
-  font-size: 11px;
-  color: var(--green);
-}
-
-.content-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.8fr);
-  gap: 18px;
-}
-
-.main-columns {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.side-columns {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  align-items: center;
+  gap: 10px;
 }
 
 .panel {
   background: white;
   border: 1px solid var(--line);
   border-radius: 6px;
+  overflow: hidden;
 }
 
 .panel-header {
@@ -503,259 +612,224 @@ onMounted(load)
 .panel-header h3 {
   margin: 0;
   font-size: 15px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
-.panel-header h3 .el-icon {
-  color: var(--green);
-}
-
-.panel-body {
-  padding: 18px;
-}
-
-.muted {
+.count {
   color: var(--muted);
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 4px;
-  background: #edf4ef;
-  color: var(--green);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.detail-list {
-  margin: 0;
-  padding: 4px 18px;
-}
-
-.detail-list div {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.detail-list div:last-child {
-  border-bottom: 0;
-}
-
-dt {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-dd {
-  margin: 0;
   font-size: 13px;
 }
 
-.timeline {
-  padding: 22px 24px;
+.table-wrapper {
+  position: relative;
+  overflow-x: auto;
 }
 
-.timeline p {
-  color: var(--muted);
-  font-size: 11px;
-  margin: 5px 0;
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
 }
 
-.edit-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 14px;
+.data-table th {
+  background: var(--green-light);
+  padding: 14px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--green-dark);
+  white-space: nowrap;
+  border-bottom: 2px solid var(--line);
 }
 
-/* 天气网格 */
-.weather-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  padding: 18px;
+.data-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
 }
 
-.weather-item {
+.data-table tbody tr:hover {
+  background: var(--green-light);
+}
+
+.name-cell,
+.region-cell {
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 12px;
+}
+
+.name-cell .icon,
+.region-cell .icon {
+  color: var(--green);
+  font-size: 16px;
+}
+
+.phenology-cell {
+  white-space: nowrap;
+}
+
+.phenology-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--green-light);
+  color: var(--green);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-enabled {
+  background: #edf4ef;
+  color: var(--green);
+}
+
+.status-disabled {
+  background: #f8f0ef;
+  color: var(--red);
+}
+
+.actions-cell {
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+  color: var(--muted);
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-light);
+}
+
+.action-btn.toggle:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: #fff5e6;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.empty-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.empty-icon {
+  font-size: 48px;
+  color: var(--line);
+  margin-bottom: 12px;
+}
+
+.empty-state p {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.empty-hint {
+  font-size: 12px !important;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.form-grid .el-form-item {
+  margin-bottom: 0;
+}
+
+.form-grid .el-form-item:nth-child(15) {
+  grid-column: span 2;
+}
+
+.history-timeline {
+  padding: 12px 24px;
+}
+
+.timeline-content {
+  padding: 10px 14px;
   background: var(--green-light);
   border-radius: 6px;
 }
 
-.weather-date {
+.timeline-content strong {
+  font-size: 13px;
+  color: var(--green-dark);
+}
+
+.timeline-content p {
+  margin: 6px 0 0;
   font-size: 12px;
   color: var(--muted);
-  font-weight: 600;
-}
-
-.weather-icon {
-  font-size: 28px;
-  line-height: 1;
-}
-
-.weather-desc {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.weather-temp {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-/* 任务列表 */
-.task-list {
-  padding: 12px;
-}
-
-.task-item {
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  margin-bottom: 10px;
-}
-
-.task-item:last-child {
-  margin-bottom: 0;
-}
-
-.task-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.priority {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-weight: 600;
-}
-
-.priority-high {
-  background: #fee;
-  color: var(--red);
-}
-
-.priority-medium {
-  background: #fff5e6;
-  color: var(--amber);
-}
-
-.priority-low {
-  background: #edf4ef;
-  color: var(--green);
-}
-
-.task-status {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.task-item h4 {
-  margin: 0 0 6px;
-  font-size: 14px;
-  color: var(--ink);
-}
-
-.task-item p {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.task-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.task-time {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-/* 风险提示 */
-.risk-panel {
-  border-left: 3px solid var(--amber);
-}
-
-.risk-content {
-  padding: 16px 18px;
-}
-
-.risk-content p {
-  margin: 0 0 12px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--ink);
-}
-
-.risk-content p:last-child {
-  margin-bottom: 0;
-}
-
-.risk-content p strong {
-  color: var(--green);
-}
-
-.loading-placeholder {
-  padding: 32px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-/* 响应式 */
-@media (max-width: 1200px) {
-  .stat-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 @media (max-width: 1000px) {
-  .content-grid {
-    grid-template-columns: 1fr;
+  .search-bar {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .weather-grid {
-    grid-template-columns: repeat(3, 1fr);
+  .search-group {
+    max-width: none;
+  }
+
+  .filter-group {
+    justify-content: flex-end;
   }
 }
 
 @media (max-width: 760px) {
-  .orchard-band {
-    grid-template-columns: 1fr 1fr;
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .orchard-band > div {
-    border-bottom: 1px solid #405249;
-  }
-
-  .stat-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-
-  .edit-grid {
+  .form-grid {
     grid-template-columns: 1fr;
   }
 
-  .weather-grid {
-    grid-template-columns: 1fr;
+  .form-grid .el-form-item:nth-child(15) {
+    grid-column: span 1;
   }
 }
 </style>

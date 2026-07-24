@@ -274,26 +274,17 @@ onMounted(() => init().catch(() => {}))
           <h2>今天需要了解什么？</h2>
           <div class="suggestions">
             <button
-              @click="
-                question = '未来两天有大雨，幼果期是否需要灌溉和施肥？'
-                send()
-              "
+              @click="question = '未来两天有大雨，幼果期是否需要灌溉和施肥？'; send()"
             >
               雨前水肥安排
             </button>
             <button
-              @click="
-                question = '300株橄榄树，每株施肥12千克，总量是多少？'
-                send()
-              "
+              @click="question = '300株橄榄树，每株施肥12千克，总量是多少？'; send()"
             >
               肥料总量计算
             </button>
             <button
-              @click="
-                question = '近期幼果落果较多，应先检查什么？'
-                send()
-              "
+              @click="question = '近期幼果落果较多，应先检查什么？'; send()"
             >
               幼果落果排查
             </button>

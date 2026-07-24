@@ -22,13 +22,21 @@ export interface Orchard {
   treeCount: number
   treeAgeYears: number
   variety: string
+  plantingMode: string
   irrigationMode: string
+  plantingDate?: string
+  province: string
+  city: string
+  district: string
+  longitude?: number
+  latitude?: number
   region: string
   address?: string
   managerName: string
   currentPhenology: string
   phenologyEffectiveDate?: string
-  status: string
+  remark?: string
+  status: 'ENABLED' | 'DISABLED'
 }
 
 // 分页数据结构
