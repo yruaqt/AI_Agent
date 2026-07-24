@@ -20,13 +20,14 @@ export interface Orchard {
   name: string
   areaMu: number
   treeCount: number
-  treeAge: number
+  treeAgeYears: number
   variety: string
   irrigationMode: string
   region: string
   address?: string
-  manager: string
+  managerName: string
   currentPhenology: string
+  phenologyEffectiveDate?: string
   status: string
 }
 
@@ -97,3 +98,54 @@ export const HttpStatus = {
   BAD_GATEWAY: 502,
   GATEWAY_TIMEOUT: 504
 } as const
+
+// 天气相关类型
+export interface CurrentWeather {
+  temperatureC: number
+  weather: string
+  windDirection: string
+  windLevel: string
+}
+
+export interface WeatherForecast {
+  date: string
+  dayWeather: string
+  nightWeather: string
+  minTemperatureC: number
+  maxTemperatureC: number
+  windLevel: string
+}
+
+export interface WeatherData {
+  orchardId: string
+  provider: string
+  updatedAt: string
+  current: CurrentWeather
+  forecast: WeatherForecast[]
+  cached: boolean
+}
+
+// 农事任务相关类型
+export interface Task {
+  id: string
+  type: string
+  title: string
+  content: string
+  priority: 'HIGH' | 'MEDIUM' | 'LOW'
+  suggestedTime: string
+  status: 'DRAFT' | 'CONFIRMED' | 'TODO' | 'DOING' | 'DONE' | 'CANCELLED'
+  basis: string
+  safetyNotice: string
+  orchardId?: string
+  createdAt?: string
+}
+
+// 物候期历史记录类型
+export interface PhenologyRecord {
+  id: string
+  orchardId: string
+  phenology: string
+  effectiveDate: string
+  remark: string
+  createdAt?: string
+}
