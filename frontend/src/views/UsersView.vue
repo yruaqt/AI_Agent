@@ -14,11 +14,14 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkeletonTable from '@/components/SkeletonTable.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const auth = useAuthStore()
 
 const users = ref<User[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 
 const pagination = reactive({
   page: 1,
@@ -61,6 +64,7 @@ const statusMap: Record<string, { label: string; class: string }> = {
 
 async function load() {
   loading.value = true
+  error.value = null
   try {
     const result = unwrap<PageData<User>>(
       await api.get('/users', {
@@ -74,8 +78,9 @@ async function load() {
     )
     users.value = result.items
     pagination.total = result.total
-  } catch (e) {
+  } catch (e: any) {
     console.error('加载用户列表失败', e)
+    error.value = e?.message || '加载用户列表失败，请稍后重试'
   } finally {
     loading.value = false
   }
@@ -242,6 +247,20 @@ onMounted(load)
         <template v-if="loading">
           <SkeletonTable :rows="6" :columns="6" />
         </template>
+        <template v-else-if="error">
+          <ErrorState
+            title="加载失败"
+            description="用户列表加载失败，请检查网络连接后重试"
+            :error="error"
+            @retry="load"
+          />
+        </template>
+        <template v-else-if="users.length === 0">
+          <EmptyState
+            title="暂无用户数据"
+            description="点击上方「新增用户」创建第一个账号"
+          />
+        </template>
         <template v-else>
           <table class="data-table">
             <thead>
@@ -294,12 +313,6 @@ onMounted(load)
               </tr>
             </tbody>
           </table>
-
-          <div v-if="users.length === 0" class="empty-state">
-            <UserIcon class="empty-icon" />
-            <p>暂无用户数据</p>
-            <p class="empty-hint">点击上方「新增用户」创建第一个账号</p>
-          </div>
         </template>
       </div>
 

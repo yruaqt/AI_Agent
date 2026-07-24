@@ -17,11 +17,14 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkeletonTable from '@/components/SkeletonTable.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const auth = useAuthStore()
 
 const orchards = ref<Orchard[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 const pagination = reactive({
   page: 1,
   pageSize: 15,
@@ -82,6 +85,7 @@ const statusMap: Record<string, { label: string; class: string }> = {
 
 async function loadOrchards() {
   loading.value = true
+  error.value = null
   try {
     const result = unwrap<PageData<Orchard>>(
       await api.get('/orchards', {
@@ -95,7 +99,8 @@ async function loadOrchards() {
     )
     orchards.value = result.items
     pagination.total = result.total
-  } catch (e) {
+  } catch (e: any) {
+    error.value = e?.message || '加载果园列表失败'
     console.error('加载果园列表失败', e)
   } finally {
     loading.value = false
@@ -305,6 +310,27 @@ onMounted(loadOrchards)
         <template v-if="loading">
           <SkeletonTable :rows="6" :columns="11" />
         </template>
+        <template v-else-if="error">
+          <ErrorState
+            title="加载果园列表失败"
+            description="无法获取果园档案数据，请检查网络连接或稍后重试"
+            :error="error"
+            @retry="loadOrchards"
+          />
+        </template>
+        <template v-else-if="orchards.length === 0">
+          <EmptyState
+            title="暂无果园数据"
+            description="系统中还没有创建任何果园档案"
+            :show-action="auth.isAdmin"
+            action-text="新增果园"
+            @action="openCreateDialog"
+          >
+            <template #icon>
+              <Cherry class="empty-icon" />
+            </template>
+          </EmptyState>
+        </template>
         <template v-else>
           <table class="data-table">
             <thead>
@@ -385,12 +411,6 @@ onMounted(loadOrchards)
               </tr>
             </tbody>
           </table>
-
-          <div v-if="orchards.length === 0" class="empty-state">
-            <Cherry class="empty-icon" />
-            <p>暂无果园数据</p>
-            <p v-if="auth.isAdmin" class="empty-hint">点击上方「新增果园」创建第一个果园档案</p>
-          </div>
         </template>
       </div>
 

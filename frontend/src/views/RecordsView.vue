@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth'
 import { Plus, Refresh, View, Edit, Check, Filter, Star } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import SkeletonTable from '@/components/SkeletonTable.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const auth = useAuthStore()
 
@@ -13,6 +15,7 @@ const orchards = ref<Orchard[]>([])
 const records = ref<TrainingRecord[]>([])
 const tasks = ref<Task[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 
 // 分页
 const pagination = reactive({
@@ -70,6 +73,7 @@ const statusTagType = (status: string): any => {
 
 async function load() {
   loading.value = true
+  error.value = null
   try {
     // 首次加载果园列表
     if (orchards.value.length === 0) {
@@ -106,6 +110,8 @@ async function load() {
     )
     records.value = result.items
     pagination.total = result.total
+  } catch (e: any) {
+    error.value = e?.message || '加载实训记录失败，请稍后重试'
   } finally {
     loading.value = false
   }
@@ -279,7 +285,18 @@ onMounted(load)
         <SkeletonTable :rows="6" :columns="10" />
       </template>
       <template v-else>
-        <el-empty v-if="records.length === 0" description="暂无实训记录" style="padding: 48px 0;" />
+        <ErrorState
+          v-if="error"
+          title="加载失败"
+          description="实训记录加载出现问题，请检查网络后重试"
+          :error="error"
+          @retry="load"
+        />
+        <EmptyState
+          v-else-if="records.length === 0"
+          title="暂无实训记录"
+          description="还没有任何实训记录，点击右上角新增记录开始提交"
+        />
         <el-table v-else :data="records" stripe>
           <el-table-column prop="recordDate" label="日期" width="120" />
           <el-table-column label="抽查数据" width="150">

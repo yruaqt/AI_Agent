@@ -8,6 +8,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkeletonChat from '@/components/SkeletonChat.vue'
+import ErrorState from '@/components/ErrorState.vue'
 
 interface Citation {
   documentId?: string
@@ -44,10 +45,13 @@ const scrollRef = ref<HTMLElement>()
 const controller = ref<AbortController>()
 const sessionPaneVisible = ref(false)
 const initLoading = ref(false)
+const initError = ref<string | null>(null)
+const sessionError = ref<string | null>(null)
 
 async function init() {
   const savedId = localStorage.getItem('currentOrchardId')
   initLoading.value = true
+  initError.value = null
   try {
     const data = unwrap<PageData<Orchard>>(
       await api.get('/orchards', { params: { pageSize: 50, status: 'ENABLED' } })
@@ -59,20 +63,24 @@ async function init() {
     }
     await loadSessions()
     if (sessions.value[0]) await select(sessions.value[0].id)
-  } catch {
-    /* ignore */
+  } catch (e: any) {
+    initError.value = e?.message || '初始化失败，请稍后重试'
+    console.error('初始化聊天页面失败', e)
   } finally {
     initLoading.value = false
   }
 }
 
 async function loadSessions() {
+  sessionError.value = null
   try {
     const params: any = {}
     if (orchard.value) params.orchardId = orchard.value.id
     sessions.value = unwrap<PageData<any>>(await api.get('/chat/sessions', { params })).items
-  } catch {
+  } catch (e: any) {
+    sessionError.value = e?.message || '加载会话列表失败'
     sessions.value = []
+    console.error('加载会话列表失败', e)
   }
 }
 
@@ -247,6 +255,24 @@ onMounted(() => init().catch(() => {}))
       <div v-if="initLoading" class="session-skeleton">
         <SkeletonChat type="session" />
       </div>
+      <template v-else-if="initError">
+        <ErrorState
+          size="small"
+          title="初始化失败"
+          description="无法加载果园和会话数据，请检查网络连接"
+          :error="initError"
+          @retry="init"
+        />
+      </template>
+      <template v-else-if="sessionError">
+        <ErrorState
+          size="small"
+          title="加载会话失败"
+          description="无法获取会话列表，请稍后重试"
+          :error="sessionError"
+          @retry="loadSessions"
+        />
+      </template>
       <template v-else>
         <div v-if="!sessions.length" class="session-empty">暂无会话</div>
         <div class="session-list">
@@ -282,6 +308,14 @@ onMounted(() => init().catch(() => {}))
       <div ref="scrollRef" class="messages">
         <template v-if="initLoading">
           <SkeletonChat type="message" />
+        </template>
+        <template v-else-if="initError">
+          <ErrorState
+            title="初始化失败"
+            description="无法加载聊天数据，请检查网络连接后重试"
+            :error="initError"
+            @retry="init"
+          />
         </template>
         <template v-else>
           <div v-if="!messages.length" class="chat-empty">

@@ -22,6 +22,8 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkeletonTable from '@/components/SkeletonTable.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const auth = useAuthStore()
 
@@ -57,6 +59,7 @@ interface SearchHit {
 // 列表与分页
 const docs = ref<KnowledgeDocument[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 const pagination = reactive({
   page: 1,
   pageSize: 15,
@@ -138,6 +141,7 @@ const stats = computed(() => {
 
 async function load() {
   loading.value = true
+  error.value = null
   try {
     const result = unwrap<PageData<KnowledgeDocument>>(
       await api.get('/knowledge/documents', {
@@ -151,8 +155,9 @@ async function load() {
     )
     docs.value = result.items
     pagination.total = result.total
-  } catch (e) {
+  } catch (e: any) {
     console.error('加载文档列表失败', e)
+    error.value = e?.message || '加载文档列表失败，请稍后重试'
   } finally {
     loading.value = false
   }
@@ -426,6 +431,21 @@ onMounted(load)
         <template v-if="loading">
           <SkeletonTable :rows="6" :columns="9" />
         </template>
+        <template v-else-if="error">
+          <ErrorState
+            title="加载失败"
+            description="无法加载知识库文档列表，请检查网络连接后重试"
+            :error="error"
+            @retry="load"
+          />
+        </template>
+        <template v-else-if="docs.length === 0">
+          <EmptyState
+            title="暂无知识资料"
+            :description="auth.isAdmin ? '点击上方「上传资料」导入橄榄种植相关文档' : '暂无可用的知识资料'"
+            :icon="Files"
+          />
+        </template>
         <template v-else>
           <table class="data-table">
             <thead>
@@ -507,12 +527,6 @@ onMounted(load)
               </tr>
             </tbody>
           </table>
-
-          <div v-if="docs.length === 0" class="empty-state">
-            <Files class="empty-icon" />
-            <p>暂无知识资料</p>
-            <p v-if="auth.isAdmin" class="empty-hint">点击上方「上传资料」导入橄榄种植相关文档</p>
-          </div>
         </template>
       </div>
 

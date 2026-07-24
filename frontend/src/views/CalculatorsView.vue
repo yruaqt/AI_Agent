@@ -2,10 +2,12 @@
 import { reactive, ref, computed } from 'vue'
 import api, { unwrap } from '@/api'
 import { Operation, Bowl, Coin, MagicStick, TrendCharts } from '@element-plus/icons-vue'
+import ErrorState from '@/components/ErrorState.vue'
 
 const active = ref('irrigation')
 const loading = ref(false)
 const result = ref<any>(null)
+const error = ref<string | null>(null)
 
 const forms = reactive({
   irrigation: {
@@ -67,10 +69,14 @@ const currentConfig = computed(() => configs[active.value])
 async function calculate() {
   loading.value = true
   result.value = null
+  error.value = null
   try {
     const formData = (forms as any)[active.value]
     const res = unwrap<any>(await api.post(currentConfig.value.endpoint, formData))
     result.value = res
+  } catch (e: any) {
+    error.value = e?.message || '计算失败，请稍后重试'
+    console.error('计算失败', e)
   } finally {
     loading.value = false
   }
@@ -79,6 +85,7 @@ async function calculate() {
 function switchTab(key: string) {
   active.value = key
   result.value = null
+  error.value = null
 }
 
 const resultItems = computed(() => {
@@ -273,13 +280,21 @@ const hasWarning = computed(() => {
       </section>
 
       <section class="result-area">
-        <div v-if="!result" class="result-empty">
+        <div v-if="!result && !error && !loading" class="result-empty">
           <el-icon :size="48"><Operation /></el-icon>
           <span class="empty-title">等待计算</span>
           <span class="empty-desc">填写参数后点击计算按钮查看结果</span>
         </div>
 
-        <template v-else>
+        <ErrorState
+          v-else-if="error"
+          title="计算失败"
+          description="计算请求失败，请检查输入参数或稍后重试"
+          :error="error"
+          @retry="calculate"
+        />
+
+        <template v-else-if="result">
           <p class="eyebrow">计算结果</p>
           <h3 class="result-formula" v-if="result.formula">
             公式：{{ result.formula }}

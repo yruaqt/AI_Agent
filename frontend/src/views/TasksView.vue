@@ -18,6 +18,8 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import SkeletonTable from '@/components/SkeletonTable.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const auth = useAuthStore()
 
@@ -26,6 +28,7 @@ const orchards = ref<Orchard[]>([])
 const orchardId = ref<string>('')
 const tasks = ref<Task[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 const generating = ref(false)
 const date = ref(new Date().toISOString().slice(0, 10))
 const statusFilter = ref('')
@@ -125,6 +128,7 @@ const statusCounts = computed(() => {
 // 加载数据
 async function load() {
   loading.value = true
+  error.value = null
   try {
     // 首次加载果园列表
     if (orchards.value.length === 0) {
@@ -152,6 +156,9 @@ async function load() {
     const result = unwrap<PageData<Task>>(await api.get('/tasks', { params }))
     tasks.value = result.items
     pagination.total = result.total
+  } catch (e: any) {
+    error.value = e?.message || '加载任务列表失败'
+    console.error('加载任务列表失败', e)
   } finally {
     loading.value = false
   }
@@ -379,9 +386,25 @@ onMounted(load)
       <template v-if="loading">
         <SkeletonTable :rows="6" :columns="6" />
       </template>
+      <template v-else-if="error">
+        <ErrorState
+          title="加载任务列表失败"
+          description="无法获取农事任务数据，请检查网络连接后重试"
+          :error="error"
+          @retry="load"
+        />
+      </template>
+      <template v-else-if="tasks.length === 0">
+        <EmptyState
+          title="暂无任务"
+          :description="orchardId ? '当前果园在所选日期暂无任务，可点击右上角「生成任务」使用 AI 智能生成' : '请先选择果园查看任务'"
+          :show-action="!!orchardId && auth.isAdmin"
+          action-text="生成任务"
+          @action="generate"
+        />
+      </template>
       <template v-else>
-        <el-empty v-if="tasks.length === 0" description="暂无任务" style="padding: 48px 0;" />
-        <el-table v-else :data="tasks" stripe>
+        <el-table :data="tasks" stripe>
           <el-table-column label="优先级" width="88">
             <template #default="{ row }">
               <span :class="`priority-${row.priority.toLowerCase()}`">
