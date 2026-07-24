@@ -24,10 +24,48 @@ function getStoredToken(): string | null {
   return localStorage.getItem('accessToken')
 }
 
-// 清除认证状态
+// 清除认证状态并跳转登录
 function clearAuthState() {
   localStorage.removeItem('accessToken')
   setAuthToken(null)
+}
+
+// 是否正在处理401的标记，防止多次触发
+let isHandling401 = false
+
+/**
+ * 处理401未授权错误
+ * 清除认证状态并跳转到登录页，保存原路径以便登录后返回
+ */
+function handle401Unauthorized() {
+  if (isHandling401) return
+  isHandling401 = true
+
+  // 保存当前路径，登录后可以返回
+  const currentPath = window.location.pathname
+  if (currentPath !== '/login' && currentPath !== '/') {
+    sessionStorage.setItem('redirectAfterLogin', currentPath)
+  }
+
+  // 清除认证状态
+  clearAuthState()
+
+  // 显示提示消息
+  ElMessage.warning('登录已过期，请重新登录')
+
+  // 延迟跳转，让用户看到提示
+  setTimeout(() => {
+    window.location.href = '/login'
+    isHandling401 = false
+  }, 800)
+}
+
+/**
+ * 处理403权限不足错误
+ * 显示错误提示，不跳转页面
+ */
+function handle403Forbidden(message: string) {
+  ElMessage.error(message || '抱歉，您没有权限执行此操作')
 }
 
 // 错误消息映射（根据接口文档 2.5）
@@ -113,21 +151,11 @@ api.interceptors.response.use(
 
     // 401 未授权：清除认证状态并跳转到登录页
     if (status === 401 || errorCode === 40101) {
-      clearAuthState()
-
-      // 避免在登录页重复跳转
-      if (window.location.pathname !== '/login') {
-        // 显示提示消息
-        ElMessage.warning('登录已过期，请重新登录')
-        // 延迟跳转，给用户时间看到提示
-        setTimeout(() => {
-          window.location.href = '/login'
-        }, 1000)
-      }
+      handle401Unauthorized()
     }
-    // 403 权限不足
+    // 403 权限不足：显示错误提示
     else if (status === 403 || errorCode === 40301) {
-      ElMessage.error(message)
+      handle403Forbidden(message)
     }
     // 429 请求过于频繁
     else if (status === 429 || errorCode === 42901) {

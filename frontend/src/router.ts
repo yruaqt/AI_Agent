@@ -1,12 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginView from '@/views/LoginView.vue'
+import ForbiddenView from '@/views/ForbiddenView.vue'
 import AppShell from '@/components/AppShell.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: LoginView },
+    { path: '/403', name: 'forbidden', component: ForbiddenView },
     {
       path: '/',
       component: AppShell,
@@ -43,8 +45,9 @@ router.beforeEach(async (to) => {
   if (isLoggedIn && to.path === '/login') {
     return '/'
   }
+  // 管理员权限检查失败时跳转到403页面
   if (to.meta.admin && !auth.isAdmin) {
-    return '/'
+    return '/403'
   }
 })
 

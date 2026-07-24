@@ -32,7 +32,15 @@ async function submit() {
   try {
     await auth.login(form.username, form.password)
     ElMessage.success('登录成功')
-    router.push('/')
+
+    // 检查是否有保存的跳转路径
+    const redirectPath = sessionStorage.getItem('redirectAfterLogin')
+    if (redirectPath) {
+      sessionStorage.removeItem('redirectAfterLogin')
+      router.push(redirectPath)
+    } else {
+      router.push('/')
+    }
   } catch {
     ElMessage.error('账号或密码错误')
   }
