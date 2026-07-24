@@ -21,6 +21,7 @@ import {
   CircleClose
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SkeletonTable from '@/components/SkeletonTable.vue'
 
 const auth = useAuthStore()
 
@@ -422,97 +423,97 @@ onMounted(load)
       </div>
 
       <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>资料名称</th>
-              <th>来源单位</th>
-              <th>类型</th>
-              <th>地区</th>
-              <th>物候期</th>
-              <th>片段</th>
-              <th>状态</th>
-              <th>更新时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="doc in docs" :key="doc.id">
-              <td class="name-cell">
-                <Document class="icon" />
-                <div class="name-info">
-                  <strong>{{ doc.title }}</strong>
-                  <span v-if="doc.fileType" class="file-type">{{ doc.fileType }}</span>
-                </div>
-              </td>
-              <td class="source-cell">
-                <OfficeBuilding class="icon-sm" />
-                <span>{{ doc.sourceOrganization || '—' }}</span>
-              </td>
-              <td>
-                <span v-if="doc.documentType" class="type-tag">{{ doc.documentType }}</span>
-                <span v-else class="muted">—</span>
-              </td>
-              <td class="region-cell">
-                <Location v-if="doc.region" class="icon-sm" />
-                <span>{{ doc.region || '—' }}</span>
-              </td>
-              <td>
-                <span v-if="doc.phenology" class="phenology-tag">
-                  {{ phenologyNames[doc.phenology] || doc.phenology }}
-                </span>
-                <span v-else class="muted">—</span>
-              </td>
-              <td>
-                <span v-if="doc.chunkCount !== undefined" class="chunk-count">{{ doc.chunkCount }}</span>
-                <span v-else class="muted">—</span>
-              </td>
-              <td>
-                <span :class="['status-badge', statusMap[doc.status]?.class]">
-                  <el-icon v-if="statusMap[doc.status]" class="status-icon">
-                    <component :is="statusMap[doc.status].icon" />
-                  </el-icon>
-                  {{ statusMap[doc.status]?.label || doc.status }}
-                </span>
-              </td>
-              <td class="time-cell">{{ doc.updatedAt || doc.createdAt || '—' }}</td>
-              <td class="actions-cell">
-                <div class="actions">
-                  <button class="action-btn view" title="查看详情" @click="openDetail(doc)">
-                    <View />
-                  </button>
-                  <button
-                    v-if="auth.isAdmin"
-                    class="action-btn reindex"
-                    title="重新处理"
-                    @click="reindex(doc)"
-                  >
-                    <Refresh />
-                  </button>
-                  <button
-                    v-if="auth.isAdmin"
-                    class="action-btn delete"
-                    title="删除"
-                    @click="remove(doc)"
-                  >
-                    <Delete />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <template v-if="loading">
+          <SkeletonTable :rows="6" :columns="9" />
+        </template>
+        <template v-else>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>资料名称</th>
+                <th>来源单位</th>
+                <th>类型</th>
+                <th>地区</th>
+                <th>物候期</th>
+                <th>片段</th>
+                <th>状态</th>
+                <th>更新时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="doc in docs" :key="doc.id">
+                <td class="name-cell">
+                  <Document class="icon" />
+                  <div class="name-info">
+                    <strong>{{ doc.title }}</strong>
+                    <span v-if="doc.fileType" class="file-type">{{ doc.fileType }}</span>
+                  </div>
+                </td>
+                <td class="source-cell">
+                  <OfficeBuilding class="icon-sm" />
+                  <span>{{ doc.sourceOrganization || '—' }}</span>
+                </td>
+                <td>
+                  <span v-if="doc.documentType" class="type-tag">{{ doc.documentType }}</span>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="region-cell">
+                  <Location v-if="doc.region" class="icon-sm" />
+                  <span>{{ doc.region || '—' }}</span>
+                </td>
+                <td>
+                  <span v-if="doc.phenology" class="phenology-tag">
+                    {{ phenologyNames[doc.phenology] || doc.phenology }}
+                  </span>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td>
+                  <span v-if="doc.chunkCount !== undefined" class="chunk-count">{{ doc.chunkCount }}</span>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td>
+                  <span :class="['status-badge', statusMap[doc.status]?.class]">
+                    <el-icon v-if="statusMap[doc.status]" class="status-icon">
+                      <component :is="statusMap[doc.status].icon" />
+                    </el-icon>
+                    {{ statusMap[doc.status]?.label || doc.status }}
+                  </span>
+                </td>
+                <td class="time-cell">{{ doc.updatedAt || doc.createdAt || '—' }}</td>
+                <td class="actions-cell">
+                  <div class="actions">
+                    <button class="action-btn view" title="查看详情" @click="openDetail(doc)">
+                      <View />
+                    </button>
+                    <button
+                      v-if="auth.isAdmin"
+                      class="action-btn reindex"
+                      title="重新处理"
+                      @click="reindex(doc)"
+                    >
+                      <Refresh />
+                    </button>
+                    <button
+                      v-if="auth.isAdmin"
+                      class="action-btn delete"
+                      title="删除"
+                      @click="remove(doc)"
+                    >
+                      <Delete />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-        <div v-if="loading" class="loading-overlay">
-          <el-icon class="loading-icon is-loading"><Loading /></el-icon>
-          <span>加载中...</span>
-        </div>
-
-        <div v-if="!loading && docs.length === 0" class="empty-state">
-          <Files class="empty-icon" />
-          <p>暂无知识资料</p>
-          <p v-if="auth.isAdmin" class="empty-hint">点击上方「上传资料」导入橄榄种植相关文档</p>
-        </div>
+          <div v-if="docs.length === 0" class="empty-state">
+            <Files class="empty-icon" />
+            <p>暂无知识资料</p>
+            <p v-if="auth.isAdmin" class="empty-hint">点击上方「上传资料」导入橄榄种植相关文档</p>
+          </div>
+        </template>
       </div>
 
       <div class="pagination-bar" v-if="pagination.total > 0">

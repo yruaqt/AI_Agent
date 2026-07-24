@@ -5,6 +5,7 @@ import type { Orchard, PageData, TrainingRecord, TrainingRecordCreate, TrainingR
 import { useAuthStore } from '@/stores/auth'
 import { Plus, Refresh, View, Edit, Check, Filter, Star } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import SkeletonTable from '@/components/SkeletonTable.vue'
 
 const auth = useAuthStore()
 
@@ -273,73 +274,78 @@ onMounted(load)
       </div>
     </section>
 
-    <section class="panel" v-loading="loading">
-      <el-empty v-if="records.length === 0" description="暂无实训记录" style="padding: 48px 0;" />
-      <el-table v-else :data="records" stripe>
-        <el-table-column prop="recordDate" label="日期" width="120" />
-        <el-table-column label="抽查数据" width="150">
-          <template #default="{ row }">
-            <strong>{{ row.inspectedTreeCount || 0 }}</strong> 株 / 异常
-            <span class="priority-high">{{ row.abnormalTreeCount || 0 }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="phenomenon" label="现场现象" min-width="240" show-overflow-tooltip />
-        <el-table-column prop="measure" label="处理措施" min-width="220" show-overflow-tooltip />
-        <el-table-column label="提交人" width="100">
-          <template #default="{ row }">
-            {{ row.studentName || '—' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status || 'PENDING')" effect="plain" size="small">
-              {{ statusText[row.status || 'PENDING'] }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="评分" width="90">
-          <template #default="{ row }">
-            <span v-if="row.score !== undefined" class="score">
-              <el-icon style="color: var(--amber);"><Star /></el-icon>
-              {{ row.score }}
-            </span>
-            <span v-else class="muted">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="teacherComment" label="教师评语" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="createdAt" label="提交时间" width="180" />
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link :icon="View" @click="openDetail(row)">详情</el-button>
-            <el-button
-              v-if="(auth.isAdmin || row.studentId === auth.user?.id) && row.status !== 'APPROVED'"
-              size="small"
-              link
-              :icon="Edit"
-              @click="openEdit(row)"
-            >编辑</el-button>
-            <el-button
-              v-if="auth.isAdmin"
-              size="small"
-              link
-              :icon="Check"
-              @click="openReview(row)"
-            >评价</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+    <section class="panel">
+      <template v-if="loading">
+        <SkeletonTable :rows="6" :columns="10" />
+      </template>
+      <template v-else>
+        <el-empty v-if="records.length === 0" description="暂无实训记录" style="padding: 48px 0;" />
+        <el-table v-else :data="records" stripe>
+          <el-table-column prop="recordDate" label="日期" width="120" />
+          <el-table-column label="抽查数据" width="150">
+            <template #default="{ row }">
+              <strong>{{ row.inspectedTreeCount || 0 }}</strong> 株 / 异常
+              <span class="priority-high">{{ row.abnormalTreeCount || 0 }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="phenomenon" label="现场现象" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="measure" label="处理措施" min-width="220" show-overflow-tooltip />
+          <el-table-column label="提交人" width="100">
+            <template #default="{ row }">
+              {{ row.studentName || '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="statusTagType(row.status || 'PENDING')" effect="plain" size="small">
+                {{ statusText[row.status || 'PENDING'] }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="评分" width="90">
+            <template #default="{ row }">
+              <span v-if="row.score !== undefined" class="score">
+                <el-icon style="color: var(--amber);"><Star /></el-icon>
+                {{ row.score }}
+              </span>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="teacherComment" label="教师评语" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="createdAt" label="提交时间" width="180" />
+          <el-table-column label="操作" width="180" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" link :icon="View" @click="openDetail(row)">详情</el-button>
+              <el-button
+                v-if="(auth.isAdmin || row.studentId === auth.user?.id) && row.status !== 'APPROVED'"
+                size="small"
+                link
+                :icon="Edit"
+                @click="openEdit(row)"
+              >编辑</el-button>
+              <el-button
+                v-if="auth.isAdmin"
+                size="small"
+                link
+                :icon="Check"
+                @click="openReview(row)"
+              >评价</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
 
-      <div class="pagination-bar" v-if="pagination.total > 0">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :total="pagination.total"
-          :page-sizes="[10, 15, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="load"
-          @current-change="load"
-        />
-      </div>
+        <div class="pagination-bar" v-if="pagination.total > 0">
+          <el-pagination
+            v-model:current-page="pagination.page"
+            v-model:page-size="pagination.pageSize"
+            :total="pagination.total"
+            :page-sizes="[10, 15, 20, 50]"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="load"
+            @current-change="load"
+          />
+        </div>
+      </template>
     </section>
 
     <el-dialog v-model="dialog" title="新增实训记录" width="min(560px, 92vw)" destroy-on-close>

@@ -16,6 +16,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SkeletonTable from '@/components/SkeletonTable.vue'
 
 const auth = useAuthStore()
 
@@ -301,95 +302,96 @@ onMounted(loadOrchards)
       </div>
 
       <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>果园名称</th>
-              <th>面积</th>
-              <th>株数</th>
-              <th>树龄</th>
-              <th>品种</th>
-              <th>地区</th>
-              <th>灌溉方式</th>
-              <th>当前物候期</th>
-              <th>负责人</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="orchard in orchards" :key="orchard.id">
-              <td class="name-cell">
-                <Cherry class="icon" />
-                <span>{{ orchard.name }}</span>
-              </td>
-              <td>{{ orchard.areaMu }} 亩</td>
-              <td>{{ orchard.treeCount }} 株</td>
-              <td>{{ orchard.treeAgeYears }} 年</td>
-              <td>{{ orchard.variety }}</td>
-              <td class="region-cell">
-                <AddLocation class="icon" />
-                <span>{{ getRegion(orchard) }}</span>
-              </td>
-              <td>{{ orchard.irrigationMode }}</td>
-              <td class="phenology-cell">
-                <span class="phenology-tag">{{ phenologyNames[orchard.currentPhenology] || orchard.currentPhenology }}</span>
-              </td>
-              <td>{{ orchard.managerName }}</td>
-              <td>
-                <span :class="['status-badge', statusMap[orchard.status]?.class]">
-                  {{ statusMap[orchard.status]?.label }}
-                </span>
-              </td>
-              <td class="actions-cell">
-                <div class="actions">
-                  <button
-                    v-if="auth.isAdmin"
-                    class="action-btn edit"
-                    title="编辑档案"
-                    @click="openEditDialog(orchard)"
-                  >
-                    <Edit />
-                  </button>
-                  <button
-                    v-if="auth.isAdmin"
-                    class="action-btn phenology"
-                    title="更新物候期"
-                    @click="openPhenologyDialog(orchard)"
-                  >
-                    <Clock />
-                  </button>
-                  <button
-                    class="action-btn history"
-                    title="物候期历史"
-                    @click="openHistoryDialog(orchard)"
-                  >
-                    <Calendar />
-                  </button>
-                  <button
-                    v-if="auth.isAdmin"
-                    class="action-btn toggle"
-                    :title="orchard.status === 'ENABLED' ? '停用' : '启用'"
-                    @click="toggleStatus(orchard)"
-                  >
-                    <Close v-if="orchard.status === 'ENABLED'" />
-                    <Check v-else />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <template v-if="loading">
+          <SkeletonTable :rows="6" :columns="11" />
+        </template>
+        <template v-else>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>果园名称</th>
+                <th>面积</th>
+                <th>株数</th>
+                <th>树龄</th>
+                <th>品种</th>
+                <th>地区</th>
+                <th>灌溉方式</th>
+                <th>当前物候期</th>
+                <th>负责人</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="orchard in orchards" :key="orchard.id">
+                <td class="name-cell">
+                  <Cherry class="icon" />
+                  <span>{{ orchard.name }}</span>
+                </td>
+                <td>{{ orchard.areaMu }} 亩</td>
+                <td>{{ orchard.treeCount }} 株</td>
+                <td>{{ orchard.treeAgeYears }} 年</td>
+                <td>{{ orchard.variety }}</td>
+                <td class="region-cell">
+                  <AddLocation class="icon" />
+                  <span>{{ getRegion(orchard) }}</span>
+                </td>
+                <td>{{ orchard.irrigationMode }}</td>
+                <td class="phenology-cell">
+                  <span class="phenology-tag">{{ phenologyNames[orchard.currentPhenology] || orchard.currentPhenology }}</span>
+                </td>
+                <td>{{ orchard.managerName }}</td>
+                <td>
+                  <span :class="['status-badge', statusMap[orchard.status]?.class]">
+                    {{ statusMap[orchard.status]?.label }}
+                  </span>
+                </td>
+                <td class="actions-cell">
+                  <div class="actions">
+                    <button
+                      v-if="auth.isAdmin"
+                      class="action-btn edit"
+                      title="编辑档案"
+                      @click="openEditDialog(orchard)"
+                    >
+                      <Edit />
+                    </button>
+                    <button
+                      v-if="auth.isAdmin"
+                      class="action-btn phenology"
+                      title="更新物候期"
+                      @click="openPhenologyDialog(orchard)"
+                    >
+                      <Clock />
+                    </button>
+                    <button
+                      class="action-btn history"
+                      title="物候期历史"
+                      @click="openHistoryDialog(orchard)"
+                    >
+                      <Calendar />
+                    </button>
+                    <button
+                      v-if="auth.isAdmin"
+                      class="action-btn toggle"
+                      :title="orchard.status === 'ENABLED' ? '停用' : '启用'"
+                      @click="toggleStatus(orchard)"
+                    >
+                      <Close v-if="orchard.status === 'ENABLED'" />
+                      <Check v-else />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-        <div v-if="loading" class="loading-overlay">
-          <el-spinner />
-        </div>
-
-        <div v-if="!loading && orchards.length === 0" class="empty-state">
-          <Cherry class="empty-icon" />
-          <p>暂无果园数据</p>
-          <p v-if="auth.isAdmin" class="empty-hint">点击上方「新增果园」创建第一个果园档案</p>
-        </div>
+          <div v-if="orchards.length === 0" class="empty-state">
+            <Cherry class="empty-icon" />
+            <p>暂无果园数据</p>
+            <p v-if="auth.isAdmin" class="empty-hint">点击上方「新增果园」创建第一个果园档案</p>
+          </div>
+        </template>
       </div>
 
       <div class="pagination-bar" v-if="pagination.total > 0">

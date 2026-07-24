@@ -7,6 +7,7 @@ import {
   Loading, Check, Close, Expand
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SkeletonChat from '@/components/SkeletonChat.vue'
 
 interface Citation {
   documentId?: string
@@ -42,9 +43,11 @@ const sending = ref(false)
 const scrollRef = ref<HTMLElement>()
 const controller = ref<AbortController>()
 const sessionPaneVisible = ref(false)
+const initLoading = ref(false)
 
 async function init() {
   const savedId = localStorage.getItem('currentOrchardId')
+  initLoading.value = true
   try {
     const data = unwrap<PageData<Orchard>>(
       await api.get('/orchards', { params: { pageSize: 50, status: 'ENABLED' } })
@@ -58,6 +61,8 @@ async function init() {
     if (sessions.value[0]) await select(sessions.value[0].id)
   } catch {
     /* ignore */
+  } finally {
+    initLoading.value = false
   }
 }
 
@@ -238,20 +243,25 @@ onMounted(() => init().catch(() => {}))
 <template>
   <div class="chat-workspace">
     <aside class="session-pane" :class="{ show: sessionPaneVisible }">
-      <el-button type="primary" :icon="Plus" @click="createSession">新建会话</el-button>
-      <div v-if="!sessions.length" class="session-empty">暂无会话</div>
-      <div class="session-list">
-        <button
-          v-for="s in sessions"
-          :key="s.id"
-          :class="{ active: activeSession === s.id }"
-          @click="select(s.id)"
-        >
-          <span>{{ s.title || '新对话' }}</span>
-          <small>{{ s.createdAt?.slice(5, 16).replace('T', ' ') }}</small>
-          <el-icon title="删除会话" @click.stop="remove(s.id)"><Delete /></el-icon>
-        </button>
+      <el-button type="primary" :icon="Plus" @click="createSession" :disabled="initLoading">新建会话</el-button>
+      <div v-if="initLoading" class="session-skeleton">
+        <SkeletonChat type="session" />
       </div>
+      <template v-else>
+        <div v-if="!sessions.length" class="session-empty">暂无会话</div>
+        <div class="session-list">
+          <button
+            v-for="s in sessions"
+            :key="s.id"
+            :class="{ active: activeSession === s.id }"
+            @click="select(s.id)"
+          >
+            <span>{{ s.title || '新对话' }}</span>
+            <small>{{ s.createdAt?.slice(5, 16).replace('T', ' ') }}</small>
+            <el-icon title="删除会话" @click.stop="remove(s.id)"><Delete /></el-icon>
+          </button>
+        </div>
+      </template>
     </aside>
 
     <section class="chat-main">
@@ -261,87 +271,93 @@ onMounted(() => init().catch(() => {}))
             <el-icon><Expand /></el-icon>
           </button>
           <div class="header-info">
-            <strong>{{ orchard?.name }}</strong>
-            <span>{{ orchard?.currentPhenology }} · RAG 已连接</span>
+            <strong>{{ initLoading ? '加载中...' : (orchard?.name || '未选择果园') }}</strong>
+            <span v-if="!initLoading">{{ orchard?.currentPhenology }} · RAG 已连接</span>
+            <span v-else class="muted">正在初始化...</span>
           </div>
         </div>
         <span class="status-pill">Agent 在线</span>
       </header>
 
       <div ref="scrollRef" class="messages">
-        <div v-if="!messages.length" class="chat-empty">
-          <div class="olive-seal">榄</div>
-          <h2>今天需要了解什么？</h2>
-          <div class="suggestions">
-            <button
-              @click="question = '未来两天有大雨，幼果期是否需要灌溉和施肥？'; send()"
-            >
-              雨前水肥安排
-            </button>
-            <button
-              @click="question = '300株橄榄树，每株施肥12千克，总量是多少？'; send()"
-            >
-              肥料总量计算
-            </button>
-            <button
-              @click="question = '近期幼果落果较多，应先检查什么？'; send()"
-            >
-              幼果落果排查
-            </button>
+        <template v-if="initLoading">
+          <SkeletonChat type="message" />
+        </template>
+        <template v-else>
+          <div v-if="!messages.length" class="chat-empty">
+            <div class="olive-seal">榄</div>
+            <h2>今天需要了解什么？</h2>
+            <div class="suggestions">
+              <button
+                @click="question = '未来两天有大雨，幼果期是否需要灌溉和施肥？'; send()"
+              >
+                雨前水肥安排
+              </button>
+              <button
+                @click="question = '300株橄榄树，每株施肥12千克，总量是多少？'; send()"
+              >
+                肥料总量计算
+              </button>
+              <button
+                @click="question = '近期幼果落果较多，应先检查什么？'; send()"
+              >
+                幼果落果排查
+              </button>
+            </div>
           </div>
-        </div>
 
-        <article
-          v-for="(m, i) in messages"
-          :key="i"
-          :class="['message', m.role]"
-        >
-          <div class="avatar">{{ m.role === 'user' ? '我' : '榄' }}</div>
-          <div class="message-body">
-            <div class="message-label">
-              {{ m.role === 'user' ? '我的问题' : '榄园知行 Agent' }}
-            </div>
-            <div class="message-content">
-              {{ m.content }}<span v-if="m.streaming" class="cursor"></span>
-            </div>
-
-            <div v-if="m.tools?.length" class="tool-list">
-              <span
-                v-for="t in m.tools"
-                :key="t.name + '-' + t.status"
-                :class="['tool-chip', (t.status || '').toLowerCase()]"
-              >
-                <el-icon v-if="t.status === 'RUNNING'" class="is-loading">
-                  <Loading />
-                </el-icon>
-                <el-icon v-else-if="t.status === 'SUCCESS'"><Check /></el-icon>
-                <el-icon v-else><Close /></el-icon>
-                {{ t.summary || t.name }}
-              </span>
-            </div>
-
-            <details v-if="m.citations?.length" class="citations">
-              <summary>
-                <el-icon><Document /></el-icon>
-                {{ m.citations.length }} 条知识来源
-              </summary>
-              <div
-                v-for="c in m.citations"
-                :key="
-                  (c.documentId || '') +
-                  '-' +
-                  (c.chunkId || c.chunkNo || c.page || '')
-                "
-              >
-                <strong>
-                  {{ c.documentName || '未知来源' }} ·
-                  {{ c.page ? '第 ' + c.page + ' 页' : '片段 ' + (c.chunkId || c.chunkNo || '—') }}
-                </strong>
-                <p>{{ c.quote || c.content }}</p>
+          <article
+            v-for="(m, i) in messages"
+            :key="i"
+            :class="['message', m.role]"
+          >
+            <div class="avatar">{{ m.role === 'user' ? '我' : '榄' }}</div>
+            <div class="message-body">
+              <div class="message-label">
+                {{ m.role === 'user' ? '我的问题' : '榄园知行 Agent' }}
               </div>
-            </details>
-          </div>
-        </article>
+              <div class="message-content">
+                {{ m.content }}<span v-if="m.streaming" class="cursor"></span>
+              </div>
+
+              <div v-if="m.tools?.length" class="tool-list">
+                <span
+                  v-for="t in m.tools"
+                  :key="t.name + '-' + t.status"
+                  :class="['tool-chip', (t.status || '').toLowerCase()]"
+                >
+                  <el-icon v-if="t.status === 'RUNNING'" class="is-loading">
+                    <Loading />
+                  </el-icon>
+                  <el-icon v-else-if="t.status === 'SUCCESS'"><Check /></el-icon>
+                  <el-icon v-else><Close /></el-icon>
+                  {{ t.summary || t.name }}
+                </span>
+              </div>
+
+              <details v-if="m.citations?.length" class="citations">
+                <summary>
+                  <el-icon><Document /></el-icon>
+                  {{ m.citations.length }} 条知识来源
+                </summary>
+                <div
+                  v-for="c in m.citations"
+                  :key="
+                    (c.documentId || '') +
+                    '-' +
+                    (c.chunkId || c.chunkNo || c.page || '')
+                  "
+                >
+                  <strong>
+                    {{ c.documentName || '未知来源' }} ·
+                    {{ c.page ? '第 ' + c.page + ' 页' : '片段 ' + (c.chunkId || c.chunkNo || '—') }}
+                  </strong>
+                  <p>{{ c.quote || c.content }}</p>
+                </div>
+              </details>
+            </div>
+          </article>
+        </template>
       </div>
 
       <footer class="composer">

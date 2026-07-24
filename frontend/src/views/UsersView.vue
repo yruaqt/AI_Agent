@@ -13,6 +13,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SkeletonTable from '@/components/SkeletonTable.vue'
 
 const auth = useAuthStore()
 
@@ -238,68 +239,68 @@ onMounted(load)
       </div>
 
       <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>姓名</th>
-              <th>用户名</th>
-              <th>角色</th>
-              <th>状态</th>
-              <th>创建时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in users" :key="row.id">
-              <td class="name-cell">
-                <UserIcon class="icon" />
-                <strong>{{ row.displayName }}</strong>
-              </td>
-              <td class="username-cell">@{{ row.username }}</td>
-              <td>
-                <span :class="['role-tag', roleMap[row.role]?.class]">
-                  {{ roleMap[row.role]?.label || row.role }}
-                </span>
-              </td>
-              <td>
-                <span :class="['status-badge', statusMap[row.status]?.class]">
-                  {{ statusMap[row.status]?.label || row.status }}
-                </span>
-              </td>
-              <td class="time-cell">{{ formatDateTime(row.createdAt) }}</td>
-              <td class="actions-cell">
-                <div class="actions">
-                  <button
-                    class="action-btn reset"
-                    title="重置密码"
-                    @click="openResetDialog(row)"
-                  >
-                    <Key />
-                  </button>
-                  <button
-                    class="action-btn toggle"
-                    :title="row.status === 'ENABLED' ? '停用' : '启用'"
-                    @click="toggleStatus(row)"
-                  >
-                    <Close v-if="row.status === 'ENABLED'" />
-                    <Check v-else />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <template v-if="loading">
+          <SkeletonTable :rows="6" :columns="6" />
+        </template>
+        <template v-else>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>姓名</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in users" :key="row.id">
+                <td class="name-cell">
+                  <UserIcon class="icon" />
+                  <strong>{{ row.displayName }}</strong>
+                </td>
+                <td class="username-cell">@{{ row.username }}</td>
+                <td>
+                  <span :class="['role-tag', roleMap[row.role]?.class]">
+                    {{ roleMap[row.role]?.label || row.role }}
+                  </span>
+                </td>
+                <td>
+                  <span :class="['status-badge', statusMap[row.status]?.class]">
+                    {{ statusMap[row.status]?.label || row.status }}
+                  </span>
+                </td>
+                <td class="time-cell">{{ formatDateTime(row.createdAt) }}</td>
+                <td class="actions-cell">
+                  <div class="actions">
+                    <button
+                      class="action-btn reset"
+                      title="重置密码"
+                      @click="openResetDialog(row)"
+                    >
+                      <Key />
+                    </button>
+                    <button
+                      class="action-btn toggle"
+                      :title="row.status === 'ENABLED' ? '停用' : '启用'"
+                      @click="toggleStatus(row)"
+                    >
+                      <Close v-if="row.status === 'ENABLED'" />
+                      <Check v-else />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-        <div v-if="loading" class="loading-overlay">
-          <el-icon class="is-loading"><Refresh /></el-icon>
-          <span>加载中…</span>
-        </div>
-
-        <div v-if="!loading && users.length === 0" class="empty-state">
-          <UserIcon class="empty-icon" />
-          <p>暂无用户数据</p>
-          <p class="empty-hint">点击上方「新增用户」创建第一个账号</p>
-        </div>
+          <div v-if="users.length === 0" class="empty-state">
+            <UserIcon class="empty-icon" />
+            <p>暂无用户数据</p>
+            <p class="empty-hint">点击上方「新增用户」创建第一个账号</p>
+          </div>
+        </template>
       </div>
 
       <div class="pagination-bar" v-if="pagination.total > 0">

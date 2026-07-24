@@ -17,6 +17,7 @@ import {
   Check
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import SkeletonTable from '@/components/SkeletonTable.vue'
 
 const auth = useAuthStore()
 
@@ -374,88 +375,93 @@ onMounted(load)
     </div>
 
     <!-- 任务列表 -->
-    <section class="panel" v-loading="loading">
-      <el-empty v-if="tasks.length === 0" description="暂无任务" style="padding: 48px 0;" />
-      <el-table v-else :data="tasks" stripe>
-        <el-table-column label="优先级" width="88">
-          <template #default="{ row }">
-            <span :class="`priority-${row.priority.toLowerCase()}`">
-              ● {{ priorityText[row.priority] || row.priority }}
-            </span>
-          </template>
-        </el-table-column>
+    <section class="panel">
+      <template v-if="loading">
+        <SkeletonTable :rows="6" :columns="6" />
+      </template>
+      <template v-else>
+        <el-empty v-if="tasks.length === 0" description="暂无任务" style="padding: 48px 0;" />
+        <el-table v-else :data="tasks" stripe>
+          <el-table-column label="优先级" width="88">
+            <template #default="{ row }">
+              <span :class="`priority-${row.priority.toLowerCase()}`">
+                ● {{ priorityText[row.priority] || row.priority }}
+              </span>
+            </template>
+          </el-table-column>
 
-        <el-table-column label="任务" min-width="170">
-          <template #default="{ row }">
-            <strong>{{ row.title }}</strong>
-            <div class="cell-sub">
-              {{ typeText[row.type] || row.type }} · {{ row.suggestedTime }}
-            </div>
-          </template>
-        </el-table-column>
+          <el-table-column label="任务" min-width="170">
+            <template #default="{ row }">
+              <strong>{{ row.title }}</strong>
+              <div class="cell-sub">
+                {{ typeText[row.type] || row.type }} · {{ row.suggestedTime }}
+              </div>
+            </template>
+          </el-table-column>
 
-        <el-table-column prop="content" label="执行内容" min-width="260" show-overflow-tooltip />
+          <el-table-column prop="content" label="执行内容" min-width="260" show-overflow-tooltip />
 
-        <el-table-column label="依据" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span v-if="row.basis">{{ row.basis }}</span>
-            <span v-else class="muted">—</span>
-          </template>
-        </el-table-column>
+          <el-table-column label="依据" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.basis">{{ row.basis }}</span>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
 
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" effect="plain" size="small">
-              {{ statusText[row.status] || row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="statusTagType(row.status)" effect="plain" size="small">
+                {{ statusText[row.status] || row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
 
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link :icon="View" @click="openDetail(row)">详情</el-button>
-            <el-button
-              v-if="auth.isAdmin"
-              size="small"
-              link
-              :icon="Edit"
-              @click="openEdit(row)"
-            >编辑</el-button>
-            <el-dropdown
-              @command="(s: string) => requestStatusChange(row, s)"
-              style="margin-left: 8px;"
-            >
-              <el-button size="small">
-                流转<el-icon class="el-icon--right"><ArrowRight /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item
-                    v-for="opt in getStatusOptions(row)"
-                    :key="opt.value"
-                    :command="opt.value"
-                    :disabled="!canChangeStatus(row, opt.value)"
-                  >
-                    {{ opt.label }}
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </template>
-        </el-table-column>
-      </el-table>
+          <el-table-column label="操作" width="200" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" link :icon="View" @click="openDetail(row)">详情</el-button>
+              <el-button
+                v-if="auth.isAdmin"
+                size="small"
+                link
+                :icon="Edit"
+                @click="openEdit(row)"
+              >编辑</el-button>
+              <el-dropdown
+                @command="(s: string) => requestStatusChange(row, s)"
+                style="margin-left: 8px;"
+              >
+                <el-button size="small">
+                  流转<el-icon class="el-icon--right"><ArrowRight /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item
+                      v-for="opt in getStatusOptions(row)"
+                      :key="opt.value"
+                      :command="opt.value"
+                      :disabled="!canChangeStatus(row, opt.value)"
+                    >
+                      {{ opt.label }}
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+          </el-table-column>
+        </el-table>
 
-      <div class="pagination-bar" v-if="pagination.total > 0">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :total="pagination.total"
-          :page-sizes="[10, 15, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="load"
-          @current-change="load"
-        />
-      </div>
+        <div class="pagination-bar" v-if="pagination.total > 0">
+          <el-pagination
+            v-model:current-page="pagination.page"
+            v-model:page-size="pagination.pageSize"
+            :total="pagination.total"
+            :page-sizes="[10, 15, 20, 50]"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="load"
+            @current-change="load"
+          />
+        </div>
+      </template>
     </section>
 
     <!-- 任务详情抽屉 -->

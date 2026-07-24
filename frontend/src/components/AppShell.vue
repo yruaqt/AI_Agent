@@ -144,7 +144,16 @@ watch(
         </span>
       </button>
 
-      <div v-if="!collapsed && orchardList.length > 0" class="orchard-switcher">
+      <div v-if="!collapsed && orchardLoading" class="orchard-switcher">
+        <div class="orchard-select skeleton-orchard">
+          <div class="skeleton-avatar-sm"></div>
+          <div class="orchard-info">
+            <div class="skeleton-line skeleton-line--title"></div>
+            <div class="skeleton-line skeleton-line--tiny"></div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!collapsed && orchardList.length > 0" class="orchard-switcher">
         <el-dropdown trigger="click" @command="(id: string) => {
           const o = orchardList.find(x => x.id === id)
           if (o) selectOrchard(o)
@@ -216,7 +225,10 @@ watch(
           <span>榄园知行</span>
         </div>
 
-        <div v-if="orchardList.length > 0" class="mobile-orchard">
+        <div v-if="orchardLoading" class="mobile-orchard">
+          <div class="skeleton-select"></div>
+        </div>
+        <div v-else-if="orchardList.length > 0" class="mobile-orchard">
           <el-select
             v-model="selectedOrchardId"
             placeholder="选择果园"
@@ -326,3 +338,73 @@ watch(
     </main>
   </div>
 </template>
+
+<style scoped>
+.skeleton-orchard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  opacity: 0.7;
+}
+
+.skeleton-avatar-sm {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    rgba(46, 107, 78, 0.15) 25%,
+    rgba(46, 107, 78, 0.08) 50%,
+    rgba(46, 107, 78, 0.15) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+.skeleton-line {
+  background: linear-gradient(
+    90deg,
+    rgba(46, 107, 78, 0.15) 25%,
+    rgba(46, 107, 78, 0.08) 50%,
+    rgba(46, 107, 78, 0.15) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-line--title {
+  width: 100px;
+  height: 12px;
+  margin-bottom: 6px;
+}
+
+.skeleton-line--tiny {
+  width: 60px;
+  height: 10px;
+}
+
+.skeleton-select {
+  width: 100%;
+  height: 36px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(46, 107, 78, 0.15) 25%,
+    rgba(46, 107, 78, 0.08) 50%,
+    rgba(46, 107, 78, 0.15) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+</style>
