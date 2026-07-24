@@ -1,18 +1,14 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import api, { unwrap } from '@/api'
 import type { Orchard, PageData, PhenologyRecord } from '@/types'
 import {
   Plus,
   Edit,
-  Delete,
   Clock,
   AddLocation,
   Cherry,
-  Bowl,
-  Users,
   Calendar,
-  AlertCircle,
   Search,
   Refresh,
   Check,
@@ -58,7 +54,7 @@ const form = reactive<any>({
 const phenologyDialog = ref(false)
 const phenologyOrchardId = ref('')
 const phenology = reactive({
-  phenology: 'FRUIT_EClosePANSION',
+  phenology: 'FRUIT_EXPANSION',
   effectiveDate: new Date().toISOString().slice(0, 10),
   remark: ''
 })
@@ -72,7 +68,7 @@ const phenologyNames: Record<string, string> = {
   SHOOT_GROWTH: '春梢生长期',
   FLOWERING: '开花期',
   FRUIT_SET: '坐果期',
-  FRUIT_EClosePANSION: '幼果膨大期',
+  FRUIT_EXPANSION: '幼果膨大期',
   MATURITY: '成熟期',
   HARVEST: '采收期',
   POST_HARVEST: '采后管理期'
@@ -83,22 +79,6 @@ const statusMap: Record<string, { label: string; class: string }> = {
   DISABLED: { label: '停用', class: 'status-disabled' }
 }
 
-const filteredOrchards = computed(() => {
-  return orchards.value.filter(o => {
-    if (search.status && o.status !== search.status) return false
-    if (search.keyword) {
-      const kw = search.keyword.toLowerCase()
-      return (
-        o.name.toLowerCase().includes(kw) ||
-        o.variety.toLowerCase().includes(kw) ||
-        o.region.toLowerCase().includes(kw) ||
-        o.managerName.toLowerCase().includes(kw)
-      )
-    }
-    return true
-  })
-})
-
 async function loadOrchards() {
   loading.value = true
   try {
@@ -107,8 +87,8 @@ async function loadOrchards() {
         params: {
           page: pagination.page,
           pageSize: pagination.pageSize,
-          keyword: search.keyword,
-          status: search.status
+          keyword: search.keyword || undefined,
+          status: search.status || undefined
         }
       })
     )
@@ -125,6 +105,17 @@ async function refresh() {
   pagination.page = 1
   loadOrchards()
 }
+
+// 监听筛选条件变化，自动触发查询
+let keywordTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  () => search.keyword,
+  () => {
+    if (keywordTimer) clearTimeout(keywordTimer)
+    keywordTimer = setTimeout(() => refresh(), 300)
+  }
+)
+watch(() => search.status, () => refresh())
 
 function openCreateDialog() {
   dialogType.value = 'create'
@@ -232,7 +223,7 @@ async function toggleStatus(orchard: Orchard) {
 
 function openPhenologyDialog(orchard: Orchard) {
   phenologyOrchardId.value = orchard.id
-  phenology.phenology = orchard.currentPhenology || 'FRUIT_EClosePANSION'
+  phenology.phenology = orchard.currentPhenology || 'FRUIT_EXPANSION'
   phenology.effectiveDate = new Date().toISOString().slice(0, 10)
   phenology.remark = ''
   phenologyDialog.value = true

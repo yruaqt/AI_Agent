@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue'
+import { onMounted, ref, reactive, computed, watch } from 'vue'
 import api, { unwrap } from '@/api'
 import type { Orchard, PageData, Task } from '@/types'
 import { useAuthStore } from '@/stores/auth'
@@ -21,12 +21,20 @@ import { ElMessage } from 'element-plus'
 const auth = useAuthStore()
 
 // 数据
-const orchard = ref<Orchard | null>(null)
+const orchards = ref<Orchard[]>([])
+const orchardId = ref<string>('')
 const tasks = ref<Task[]>([])
 const loading = ref(false)
 const generating = ref(false)
 const date = ref(new Date().toISOString().slice(0, 10))
 const statusFilter = ref('')
+
+// 分页
+const pagination = reactive({
+  page: 1,
+  pageSize: 15,
+  total: 0
+})
 
 // 生成结果展示
 const lastGenerated = ref<{
@@ -34,6 +42,8 @@ const lastGenerated = ref<{
   weatherSummary?: string
   phenology?: string
 } | null>(null)
+
+const currentOrchard = computed(() => orchards.value.find(o => o.id === orchardId.value) || null)
 
 // 详情抽屉
 const detailVisible = ref(false)
@@ -101,7 +111,7 @@ const phenologyNames: Record<string, string> = {
   POST_HARVEST: '采后管理期'
 }
 
-// 统计
+// 统计（基于当前页数据）
 const statusCounts = computed(() => {
   const counts: Record<string, number> = {}
   Object.keys(statusText).forEach(s => { counts[s] = 0 })
@@ -111,39 +121,57 @@ const statusCounts = computed(() => {
   return counts
 })
 
-const filteredTasks = computed(() => {
-  if (!statusFilter.value) return tasks.value
-  return tasks.value.filter(t => t.status === statusFilter.value)
-})
-
 // 加载数据
 async function load() {
   loading.value = true
   try {
-    if (!orchard.value) {
-      const d = unwrap<PageData<Orchard>>(await api.get('/orchards'))
-      orchard.value = d.items[0] || null
-    }
-    if (orchard.value) {
-      const params = {
-        orchardId: orchard.value.id,
-        pageSize: 50,
-        date: date.value
+    // 首次加载果园列表
+    if (orchards.value.length === 0) {
+      const d = unwrap<PageData<Orchard>>(
+        await api.get('/orchards', { params: { pageSize: 50, status: 'ENABLED' } })
+      )
+      orchards.value = d.items
+      if (!orchardId.value && orchards.value[0]) {
+        orchardId.value = orchards.value[0].id
       }
-      tasks.value = unwrap<PageData<Task>>(await api.get('/tasks', { params })).items
     }
+    if (!orchardId.value) {
+      tasks.value = []
+      pagination.total = 0
+      return
+    }
+    const params: Record<string, any> = {
+      orchardId: orchardId.value,
+      page: pagination.page,
+      pageSize: pagination.pageSize
+    }
+    if (date.value) params.date = date.value
+    if (statusFilter.value) params.status = statusFilter.value
+
+    const result = unwrap<PageData<Task>>(await api.get('/tasks', { params }))
+    tasks.value = result.items
+    pagination.total = result.total
   } finally {
     loading.value = false
   }
 }
 
+// 重置到第一页并刷新
+function refresh() {
+  pagination.page = 1
+  load()
+}
+
 // 生成任务
 async function generate() {
-  if (!orchard.value) return
+  if (!orchardId.value) {
+    ElMessage.warning('请先选择果园')
+    return
+  }
   generating.value = true
   try {
     const res = unwrap<any>(
-      await api.post(`/orchards/${orchard.value.id}/tasks/generate`, {
+      await api.post(`/orchards/${orchardId.value}/tasks/generate`, {
         date: date.value,
         focus: '',
         saveAsDraft: true
@@ -155,7 +183,7 @@ async function generate() {
       phenology: res.phenology
     }
     ElMessage.success('农事任务已生成')
-    await load()
+    await refresh()
   } finally {
     generating.value = false
   }
@@ -255,9 +283,10 @@ function getStatusOptions(task: Task) {
   return all.filter(s => s.value !== task.status)
 }
 
-watch(date, () => {
-  load()
-})
+// 监听筛选条件变化：日期、状态变化重置到第一页；果园切换也重置
+watch(date, () => refresh())
+watch(statusFilter, () => refresh())
+watch(orchardId, () => refresh())
 
 onMounted(load)
 </script>
@@ -268,16 +297,28 @@ onMounted(load)
     <div class="page-title-row">
       <div>
         <h2>{{ date }} 农事安排</h2>
-        <p>{{ orchard?.name || '请选择果园' }} · {{ tasks.length }} 项任务</p>
+        <p>{{ currentOrchard?.name || '请选择果园' }} · 共 {{ pagination.total }} 项任务</p>
       </div>
       <div class="toolbar tasks-toolbar">
+        <el-select
+          v-model="orchardId"
+          placeholder="选择果园"
+          style="width: 200px"
+        >
+          <el-option
+            v-for="o in orchards"
+            :key="o.id"
+            :label="o.name"
+            :value="o.id"
+          />
+        </el-select>
         <el-date-picker
           v-model="date"
           type="date"
           value-format="YYYY-MM-DD"
           placeholder="选择日期"
         />
-        <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button :icon="Refresh" @click="refresh">刷新</el-button>
         <el-button
           type="primary"
           :icon="MagicStick"
@@ -308,7 +349,7 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- 状态统计卡片 -->
+    <!-- 状态统计卡片（基于当前页统计，点击切换状态筛选） -->
     <div class="stat-grid" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); margin-bottom: 18px;">
       <div
         v-for="(label, key) in statusText"
@@ -320,6 +361,7 @@ onMounted(load)
       >
         <span class="label">{{ label }}</span>
         <strong :style="{ color: 'var(--green)' }">{{ statusCounts[key] || 0 }}</strong>
+        <span class="trend" style="font-size: 10px;">当前页</span>
       </div>
     </div>
 
@@ -333,8 +375,8 @@ onMounted(load)
 
     <!-- 任务列表 -->
     <section class="panel" v-loading="loading">
-      <el-empty v-if="filteredTasks.length === 0" description="暂无任务" style="padding: 48px 0;" />
-      <el-table v-else :data="filteredTasks" stripe>
+      <el-empty v-if="tasks.length === 0" description="暂无任务" style="padding: 48px 0;" />
+      <el-table v-else :data="tasks" stripe>
         <el-table-column label="优先级" width="88">
           <template #default="{ row }">
             <span :class="`priority-${row.priority.toLowerCase()}`">
@@ -402,6 +444,18 @@ onMounted(load)
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-bar" v-if="pagination.total > 0">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :total="pagination.total"
+          :page-sizes="[10, 15, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="load"
+          @current-change="load"
+        />
+      </div>
     </section>
 
     <!-- 任务详情抽屉 -->
@@ -452,11 +506,11 @@ onMounted(load)
             v-if="auth.isAdmin"
             type="primary"
             :icon="Edit"
-            @click="detailVisible = false; openEdit(currentTask)"
+            @click="detailVisible = false; openEdit(currentTask!)"
           >
             编辑任务
           </el-button>
-          <el-dropdown @command="(s: string) => requestStatusChange(currentTask, s)">
+          <el-dropdown @command="(s: string) => requestStatusChange(currentTask!, s)">
             <el-button>
               变更状态<el-icon class="el-icon--right"><ArrowRight /></el-icon>
             </el-button>
@@ -559,6 +613,13 @@ onMounted(load)
 
 .priority-low {
   color: var(--green);
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 18px;
+  border-top: 1px solid var(--line);
 }
 
 .stat-card.active {

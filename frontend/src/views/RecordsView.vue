@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import api, { unwrap } from '@/api'
 import type { Orchard, PageData, TrainingRecord, TrainingRecordCreate, TrainingRecordReview, Task } from '@/types'
 import { useAuthStore } from '@/stores/auth'
@@ -8,10 +8,17 @@ import { ElMessage } from 'element-plus'
 
 const auth = useAuthStore()
 
-const orchard = ref<Orchard | null>(null)
+const orchards = ref<Orchard[]>([])
 const records = ref<TrainingRecord[]>([])
 const tasks = ref<Task[]>([])
 const loading = ref(false)
+
+// 分页
+const pagination = reactive({
+  page: 1,
+  pageSize: 15,
+  total: 0
+})
 
 const dialog = ref(false)
 const detailVisible = ref(false)
@@ -60,51 +67,76 @@ const statusTagType = (status: string): any => {
   return map[status] || ''
 }
 
-const filteredRecords = computed(() => {
-  return records.value.filter(r => {
-    if (searchForm.startDate && r.recordDate < searchForm.startDate) return false
-    if (searchForm.endDate && r.recordDate > searchForm.endDate) return false
-    if (searchForm.studentId && r.studentId !== searchForm.studentId) return false
-    return true
-  })
-})
-
 async function load() {
   loading.value = true
   try {
-    const o = unwrap<PageData<Orchard>>(await api.get('/orchards'))
-    orchard.value = o.items[0]
-    if (orchard.value) {
-      searchForm.orchardId = orchard.value.id
-      form.orchardId = orchard.value.id
+    // 首次加载果园列表
+    if (orchards.value.length === 0) {
+      const o = unwrap<PageData<Orchard>>(
+        await api.get('/orchards', { params: { pageSize: 50, status: 'ENABLED' } })
+      )
+      orchards.value = o.items
+      if (!searchForm.orchardId && orchards.value[0]) {
+        searchForm.orchardId = orchards.value[0].id
+        form.orchardId = orchards.value[0].id
+      }
+    }
 
-      records.value = unwrap<PageData<TrainingRecord>>(
-        await api.get('/training-records', {
-          params: { orchardId: orchard.value.id, pageSize: 50 }
-        })
-      ).items
-
+    // 加载关联任务列表（用于新增记录时选择）
+    if (searchForm.orchardId && tasks.value.length === 0) {
       tasks.value = unwrap<PageData<Task>>(
         await api.get('/tasks', {
-          params: { orchardId: orchard.value.id, pageSize: 50 }
+          params: { orchardId: searchForm.orchardId, pageSize: 50 }
         })
       ).items
     }
+
+    const params: Record<string, any> = {
+      page: pagination.page,
+      pageSize: pagination.pageSize
+    }
+    if (searchForm.orchardId) params.orchardId = searchForm.orchardId
+    if (searchForm.startDate) params.startDate = searchForm.startDate
+    if (searchForm.endDate) params.endDate = searchForm.endDate
+    if (searchForm.studentId) params.studentId = searchForm.studentId
+
+    const result = unwrap<PageData<TrainingRecord>>(
+      await api.get('/training-records', { params })
+    )
+    records.value = result.items
+    pagination.total = result.total
   } finally {
     loading.value = false
   }
 }
 
-function handleSearch() {
+function refresh() {
+  pagination.page = 1
   load()
+}
+
+function handleSearch() {
+  refresh()
 }
 
 function resetSearch() {
   searchForm.startDate = ''
   searchForm.endDate = ''
   searchForm.studentId = ''
-  load()
+  refresh()
 }
+
+// 监听筛选条件变化自动触发查询
+watch(
+  () => searchForm.orchardId,
+  () => {
+    form.orchardId = searchForm.orchardId
+    refresh()
+  }
+)
+watch(() => searchForm.startDate, () => refresh())
+watch(() => searchForm.endDate, () => refresh())
+watch(() => searchForm.studentId, () => refresh())
 
 async function submit() {
   await api.post('/training-records', form)
@@ -192,10 +224,10 @@ onMounted(load)
     <div class="page-title-row">
       <div>
         <h2>实训记录</h2>
-        <p>{{ orchard?.name || '请选择果园' }} · {{ records.length }} 条记录</p>
+        <p>共 {{ pagination.total }} 条记录</p>
       </div>
       <div class="toolbar">
-        <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button :icon="Refresh" @click="refresh">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="dialog = true">新增记录</el-button>
       </div>
     </div>
@@ -203,6 +235,19 @@ onMounted(load)
     <section class="panel" style="margin-bottom: 18px;">
       <div class="panel-body">
         <div class="filter-row">
+          <el-select
+            v-model="searchForm.orchardId"
+            placeholder="选择果园"
+            clearable
+            style="width: 200px"
+          >
+            <el-option
+              v-for="o in orchards"
+              :key="o.id"
+              :label="o.name"
+              :value="o.id"
+            />
+          </el-select>
           <el-date-picker
             v-model="searchForm.startDate"
             type="date"
@@ -215,6 +260,13 @@ onMounted(load)
             value-format="YYYY-MM-DD"
             placeholder="结束日期"
           />
+          <el-input
+            v-model="searchForm.studentId"
+            placeholder="学生ID筛选（管理员）"
+            clearable
+            style="width: 200px"
+            :disabled="auth.isStudent"
+          />
           <el-button :icon="Filter" @click="handleSearch">筛选</el-button>
           <el-button link @click="resetSearch">重置</el-button>
         </div>
@@ -222,8 +274,8 @@ onMounted(load)
     </section>
 
     <section class="panel" v-loading="loading">
-      <el-empty v-if="filteredRecords.length === 0" description="暂无实训记录" style="padding: 48px 0;" />
-      <el-table v-else :data="filteredRecords" stripe>
+      <el-empty v-if="records.length === 0" description="暂无实训记录" style="padding: 48px 0;" />
+      <el-table v-else :data="records" stripe>
         <el-table-column prop="recordDate" label="日期" width="120" />
         <el-table-column label="抽查数据" width="150">
           <template #default="{ row }">
@@ -276,6 +328,18 @@ onMounted(load)
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-bar" v-if="pagination.total > 0">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :total="pagination.total"
+          :page-sizes="[10, 15, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="load"
+          @current-change="load"
+        />
+      </div>
     </section>
 
     <el-dialog v-model="dialog" title="新增实训记录" width="min(560px, 92vw)" destroy-on-close>
@@ -483,6 +547,13 @@ onMounted(load)
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 18px;
+  border-top: 1px solid var(--line);
 }
 
 .priority-high {

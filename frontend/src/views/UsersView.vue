@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import api, { unwrap } from '@/api'
 import type { User, PageData } from '@/types'
 import {
@@ -66,8 +66,8 @@ async function load() {
         params: {
           page: pagination.page,
           pageSize: pagination.pageSize,
-          keyword: search.keyword,
-          status: search.status
+          keyword: search.keyword || undefined,
+          status: search.status || undefined
         }
       })
     )
@@ -84,6 +84,17 @@ function refresh() {
   pagination.page = 1
   load()
 }
+
+// 监听筛选条件变化，自动触发查询
+let keywordTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  () => search.keyword,
+  () => {
+    if (keywordTimer) clearTimeout(keywordTimer)
+    keywordTimer = setTimeout(() => refresh(), 300)
+  }
+)
+watch(() => search.status, () => refresh())
 
 function openCreateDialog() {
   Object.assign(form, {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onMounted, reactive, ref, computed, watch } from 'vue'
 import api, { unwrap } from '@/api'
 import type { PageData } from '@/types'
 import { useAuthStore } from '@/stores/auth'
@@ -125,9 +125,9 @@ const searchForm = reactive({
 })
 const searchResults = ref<SearchHit[]>([])
 
-// 统计卡片
+// 统计卡片（基于当前页数据，资料总数使用分页总数）
 const stats = computed(() => {
-  const total = docs.value.length
+  const total = pagination.total
   const ready = docs.value.filter(d => d.status === 'SUCCESS').length
   const processing = docs.value.filter(d => d.status === 'PENDING' || d.status === 'PROCESSING').length
   const failed = docs.value.filter(d => d.status === 'FAILED').length
@@ -143,8 +143,8 @@ async function load() {
         params: {
           page: pagination.page,
           pageSize: pagination.pageSize,
-          keyword: search.keyword,
-          status: search.status
+          keyword: search.keyword || undefined,
+          status: search.status || undefined
         }
       })
     )
@@ -161,6 +161,17 @@ function refresh() {
   pagination.page = 1
   load()
 }
+
+// 监听筛选条件变化，自动触发查询
+let keywordTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  () => search.keyword,
+  () => {
+    if (keywordTimer) clearTimeout(keywordTimer)
+    keywordTimer = setTimeout(() => refresh(), 300)
+  }
+)
+watch(() => search.status, () => refresh())
 
 function resetSearch() {
   search.keyword = ''
