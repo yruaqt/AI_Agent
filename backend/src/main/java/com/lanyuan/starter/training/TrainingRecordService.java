@@ -54,7 +54,7 @@ public class TrainingRecordService {
         TrainingRecord record = repository.findById(recordId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "实训记录不存在"));
         if (!record.getStudentId().equals(userId)) {
-            throw new IllegalStateException("无权操作：该记录不属于当前用户");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作：该记录不属于当前用户");
         }
     }
 

@@ -59,6 +59,10 @@ public class OrchardController extends ControllerSupport {
     @Operation(summary = "新增果园（管理员）")
     public ApiResponse<Orchard> create(@Valid @RequestBody CreateOrchardRequest req) {
         requireAdmin();
+        // 校验：果园面积必须大于 0
+        if (req.areaMu != null && req.areaMu.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "果园面积必须大于 0");
+        }
         Orchard orchard = new Orchard();
         orchard.setName(req.name);
         orchard.setAreaMu(req.areaMu);
@@ -82,6 +86,10 @@ public class OrchardController extends ControllerSupport {
     @Operation(summary = "修改果园（管理员）")
     public ApiResponse<Orchard> update(@PathVariable @Min(1) Long orchardId, @Valid @RequestBody UpdateOrchardRequest req) {
         requireAdmin();
+        // 校验：果园面积必须大于 0
+        if (req.areaMu != null && req.areaMu.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "果园面积必须大于 0");
+        }
         Orchard updated = new Orchard();
         updated.setName(req.name);
         updated.setAreaMu(req.areaMu);
@@ -143,7 +151,7 @@ public class OrchardController extends ControllerSupport {
     // --- Request DTOs ---
     public static class CreateOrchardRequest {
         @NotBlank @Size(max = 64) public String name;
-        @NotNull @DecimalMin("0") public BigDecimal areaMu;
+        @NotNull @DecimalMin(value = "0.01", message = "果园面积必须大于 0") public BigDecimal areaMu;
         @NotNull @Min(1) public Integer treeCount;
         public Integer treeAgeYears;
         @Size(max = 64) public String variety;
@@ -161,7 +169,7 @@ public class OrchardController extends ControllerSupport {
 
     public static class UpdateOrchardRequest {
         @NotBlank @Size(max = 64) public String name;
-        @NotNull @DecimalMin("0") public BigDecimal areaMu;
+        @NotNull @DecimalMin(value = "0.01", message = "果园面积必须大于 0") public BigDecimal areaMu;
         @NotNull @Min(1) public Integer treeCount;
         public Integer treeAgeYears;
         @Size(max = 64) public String variety;

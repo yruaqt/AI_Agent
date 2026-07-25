@@ -24,6 +24,9 @@ public class FileRecord extends BusinessEntity {
     @Column(nullable = false, length = 500)
     private String storagePath;
 
+    @Column(nullable = false, name = "uploader_id")
+    private Long uploaderId;
+
     public FileRecord() {}
 
     public String getOriginalName() { return originalName; }
@@ -36,4 +39,6 @@ public class FileRecord extends BusinessEntity {
     public void setFileSize(Long fileSize) { this.fileSize = fileSize; }
     public String getStoragePath() { return storagePath; }
     public void setStoragePath(String storagePath) { this.storagePath = storagePath; }
+    public Long getUploaderId() { return uploaderId; }
+    public void setUploaderId(Long uploaderId) { this.uploaderId = uploaderId; }
 }

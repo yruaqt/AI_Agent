@@ -36,6 +36,11 @@ public class TrainingRecordController extends ControllerSupport {
     @PostMapping
     @Operation(summary = "新增实训记录")
     public ApiResponse<TrainingRecord> create(@Valid @RequestBody CreateRequest req) {
+        // 校验：异常株数不能大于抽查株数
+        if (req.inspectedTreeCount != null && req.abnormalTreeCount != null
+                && req.abnormalTreeCount > req.inspectedTreeCount) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "异常株数不能大于抽查株数");
+        }
         return ApiResponse.ok(service.create(currentUser.id(), req.orchardId, req.taskId, req.recordDate,
                 req.inspectedTreeCount, req.abnormalTreeCount, req.imageUrl,
                 req.phenomenon, req.measure, req.result));
@@ -70,6 +75,11 @@ public class TrainingRecordController extends ControllerSupport {
     @PutMapping("/{recordId}")
     @Operation(summary = "修改本人实训记录")
     public ApiResponse<TrainingRecord> update(@PathVariable @Min(1) Long recordId, @Valid @RequestBody UpdateRequest req) {
+        // 校验：异常株数不能大于抽查株数
+        if (req.inspectedTreeCount != null && req.abnormalTreeCount != null
+                && req.abnormalTreeCount > req.inspectedTreeCount) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "异常株数不能大于抽查株数");
+        }
         // 非管理员只能修改自己的记录
         if (!currentUser.isAdmin()) {
             service.checkOwnership(recordId, currentUser.id());
@@ -86,6 +96,10 @@ public class TrainingRecordController extends ControllerSupport {
         if (!currentUser.isAdmin()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限：只有教师/管理员可以评价实训记录");
         }
+        // 校验评价状态
+        if (req.status != null && !req.status.equals("APPROVED") && !req.status.equals("REJECTED")) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "评价状态只能是 APPROVED 或 REJECTED");
+        }
         return ApiResponse.ok(service.review(recordId, req.score, req.comment, req.status));
     }
 
@@ -94,8 +108,8 @@ public class TrainingRecordController extends ControllerSupport {
         @NotNull public Long orchardId;
         public Long taskId;
         @NotNull public LocalDate recordDate;
-        public Integer inspectedTreeCount;
-        public Integer abnormalTreeCount;
+        @Min(0) public Integer inspectedTreeCount;
+        @Min(0) public Integer abnormalTreeCount;
         @Size(max = 512) public String imageUrl;
         @Size(max = 1000) public String phenomenon;
         @Size(max = 1000) public String measure;
@@ -106,8 +120,8 @@ public class TrainingRecordController extends ControllerSupport {
         @NotNull public Long orchardId;
         public Long taskId;
         @NotNull public LocalDate recordDate;
-        public Integer inspectedTreeCount;
-        public Integer abnormalTreeCount;
+        @Min(0) public Integer inspectedTreeCount;
+        @Min(0) public Integer abnormalTreeCount;
         @Size(max = 512) public String imageUrl;
         @Size(max = 1000) public String phenomenon;
         @Size(max = 1000) public String measure;

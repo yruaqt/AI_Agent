@@ -31,7 +31,7 @@ public class FileService {
      * 返回 FileUploadResponse（fileId, fileName, url）
      */
     @Transactional
-    public FileUploadResponse upload(MultipartFile file) throws IOException {
+    public FileUploadResponse upload(MultipartFile file, Long uploaderId) throws IOException {
         validate(file);
 
         String extension = file.getOriginalFilename().substring(file.getOriginalFilename().lastIndexOf("."));
@@ -52,6 +52,7 @@ public class FileService {
         record.setContentType(file.getContentType());
         record.setFileSize(file.getSize());
         record.setStoragePath(targetPath.toString());
+        record.setUploaderId(uploaderId);
         FileRecord saved = fileRecordRepository.save(record);
 
         String url = "/api/v1/files/" + saved.getId() + "/content";
@@ -66,7 +67,7 @@ public class FileService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "文件不存在"));
         try {
             byte[] data = Files.readAllBytes(Paths.get(record.getStoragePath()));
-            return new FileContent(data, record.getContentType());
+            return new FileContent(data, record.getContentType(), record.getUploaderId());
         } catch (IOException e) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "文件读取失败");
         }
@@ -102,5 +103,5 @@ public class FileService {
     // --- Response DTOs ---
     public record FileUploadResponse(Long fileId, String fileName, String url) {}
 
-    public record FileContent(byte[] data, String contentType) {}
+    public record FileContent(byte[] data, String contentType, Long uploaderId) {}
 }
