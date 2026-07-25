@@ -1,6 +1,5 @@
 .idea/
 .vscode/
-.env
 .cache/
 *.log
 backend/target/

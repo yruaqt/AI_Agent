@@ -107,8 +107,8 @@ const statusTagType = (status: string): any => {
 async function load() {
   loading.value = true
   error.value = null
+  // 果园列表单独加载，失败则整页不可用
   try {
-    // 首次加载果园列表
     if (orchards.value.length === 0) {
       const o = unwrap<PageData<Orchard>>(
         await api.get('/orchards', { params: { pageSize: 50, status: 'ENABLED' } })
@@ -119,16 +119,27 @@ async function load() {
         form.orchardId = orchards.value[0].id
       }
     }
+  } catch (e: any) {
+    error.value = '果园数据加载失败：' + (e?.message || '请稍后重试')
+    loading.value = false
+    return
+  }
 
-    // 加载关联任务列表（用于新增记录时选择）
-    if (searchForm.orchardId && tasks.value.length === 0) {
+  // 关联任务列表失败不影响记录展示，仅影响新增时的任务下拉
+  if (searchForm.orchardId && tasks.value.length === 0) {
+    try {
       tasks.value = unwrap<PageData<Task>>(
         await api.get('/tasks', {
           params: { orchardId: searchForm.orchardId, pageSize: 50 }
         })
       ).items
+    } catch {
+      tasks.value = []
     }
+  }
 
+  // 实训记录列表为主数据，失败时展示错误提示
+  try {
     const params: Record<string, any> = {
       page: pagination.page,
       pageSize: pagination.pageSize
@@ -144,7 +155,7 @@ async function load() {
     records.value = result.items
     pagination.total = result.total
   } catch (e: any) {
-    error.value = e?.message || '加载实训记录失败，请稍后重试'
+    error.value = '实训记录加载失败：' + (e?.message || '请稍后重试')
   } finally {
     loading.value = false
   }

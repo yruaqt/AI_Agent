@@ -24,11 +24,11 @@ async function load(){
     orchard.value=o.items[0]||null
     if(orchard.value){
       const [w,t]=await Promise.all([
-        api.get(`/orchards/${orchard.value.id}/weather?days=3`).catch(() => ({ data: { data: null } })),
-        api.get(`/tasks?orchardId=${orchard.value.id}&pageSize=8`).catch(() => ({ data: { data: { items: [], total: 0 } } }))
+        api.get(`/orchards/${orchard.value.id}/weather?days=3`).catch(() => null),
+        api.get(`/tasks?orchardId=${orchard.value.id}&pageSize=8`).catch(() => null)
       ])
-      weather.value=unwrap<any>(w)
-      tasks.value=unwrap<PageData<any>>(t).items
+      weather.value=w?unwrap<any>(w):null
+      tasks.value=t?unwrap<PageData<any>>(t).items:[]
     }
   }catch(e: any){
     error.value=e?.message || '加载数据失败'
@@ -86,7 +86,7 @@ const phenologyNames:Record<string,string>={
     <template v-else-if="!orchard">
       <div class="panel">
         <EmptyState
-          icon="Cherry"
+          :icon="Cherry"
           title="暂无果园档案"
           description="系统中还没有创建任何果园，请联系管理员创建果园档案后再查看首页信息。"
           :show-action="false"
@@ -170,9 +170,9 @@ const phenologyNames:Record<string,string>={
                 size="small"
                 title="暂无天气数据"
                 description="天气服务暂时不可用或尚未查询。"
-                :show-retry="true"
-                retry-text="刷新重试"
-                @retry="load"
+                :show-action="true"
+                action-text="刷新重试"
+                @action="load"
               />
             </div>
             <div

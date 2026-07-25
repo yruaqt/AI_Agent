@@ -218,12 +218,17 @@ async function toggleStatus(orchard: Orchard) {
         type: 'warning'
       }
     )
+  } catch {
+    // 用户取消确认，静默处理
+    return
+  }
 
+  try {
     await api.patch(`/orchards/${orchard.id}/status`, { status: newStatus })
     ElMessage.success(`${action}成功`)
     loadOrchards()
   } catch {
-    ElMessage.info('已取消操作')
+    // api 拦截器已处理错误提示
   }
 }
 
@@ -663,17 +668,13 @@ onMounted(loadOrchards)
   background: var(--green-light);
 }
 
-.name-cell,
-.region-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .name-cell .icon,
 .region-cell .icon {
   color: var(--green);
-  font-size: 16px;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 6px;
 }
 
 .phenology-cell {
