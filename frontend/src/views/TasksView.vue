@@ -27,7 +27,9 @@ const auth = useAuthStore()
 const orchards = ref<Orchard[]>([])
 const orchardId = ref<string>('')
 const tasks = ref<Task[]>([])
+const allTasks = ref<Task[]>([])
 const loading = ref(false)
+const allTasksLoading = ref(false)
 const error = ref<string | null>(null)
 const generating = ref(false)
 const date = ref(new Date().toISOString().slice(0, 10))
@@ -115,15 +117,37 @@ const phenologyNames: Record<string, string> = {
   POST_HARVEST: '采后管理期'
 }
 
-// 统计（基于当前页数据）
+// 统计（基于全部任务数据，不受筛选影响）
 const statusCounts = computed(() => {
   const counts: Record<string, number> = {}
   Object.keys(statusText).forEach(s => { counts[s] = 0 })
-  tasks.value.forEach(t => {
+  allTasks.value.forEach(t => {
     if (counts[t.status] !== undefined) counts[t.status]++
   })
   return counts
 })
+
+// 加载全部任务（用于统计卡片，不受状态筛选影响）
+async function loadAllTasks() {
+  if (!orchardId.value) {
+    allTasks.value = []
+    return
+  }
+  allTasksLoading.value = true
+  try {
+    const params: Record<string, any> = {
+      orchardId: orchardId.value,
+      pageSize: 1000
+    }
+    if (date.value) params.date = date.value
+    const result = unwrap<PageData<Task>>(await api.get('/tasks', { params }))
+    allTasks.value = result.items
+  } catch {
+    // 统计失败不影响主列表，静默处理
+  } finally {
+    allTasksLoading.value = false
+  }
+}
 
 // 加载数据
 async function load() {
@@ -170,6 +194,13 @@ function refresh() {
   load()
 }
 
+// 完整刷新（同时刷新统计和列表）
+function fullRefresh() {
+  pagination.page = 1
+  loadAllTasks()
+  load()
+}
+
 // 生成任务
 async function generate() {
   if (!orchardId.value) {
@@ -191,7 +222,7 @@ async function generate() {
       phenology: res.phenology
     }
     ElMessage.success('农事任务已生成')
-    await refresh()
+    await fullRefresh()
   } finally {
     generating.value = false
   }
@@ -227,7 +258,7 @@ async function saveEdit() {
     })
     ElMessage.success('任务已更新')
     editVisible.value = false
-    await load()
+    await fullRefresh()
   } finally {
     editLoading.value = false
   }
@@ -272,7 +303,7 @@ async function confirmStatusChange() {
     ElMessage.success('状态已更新')
     statusRemarkVisible.value = false
     pendingStatusChange.value = null
-    await load()
+    await fullRefresh()
   } catch {
     // api 拦截器已处理错误提示
   }
@@ -291,12 +322,17 @@ function getStatusOptions(task: Task) {
   return all.filter(s => s.value !== task.status)
 }
 
-// 监听筛选条件变化：日期、状态变化重置到第一页；果园切换也重置
-watch(date, () => refresh())
+// 监听筛选条件变化
+// 日期/果园变化：完整刷新（统计 + 列表）
+watch(date, () => fullRefresh())
+watch(orchardId, () => fullRefresh())
+// 状态筛选变化：只刷新列表，不影响统计卡片数据
 watch(statusFilter, () => refresh())
-watch(orchardId, () => refresh())
 
-onMounted(load)
+onMounted(() => {
+  loadAllTasks()
+  load()
+})
 </script>
 
 <template>
@@ -357,19 +393,18 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- 状态统计卡片（基于当前页统计，点击切换状态筛选） -->
-    <div class="stat-grid" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); margin-bottom: 18px;">
+    <!-- 状态统计卡片（基于全部任务统计，点击切换状态筛选） -->
+    <div class="tasks-stat-grid">
       <div
         v-for="(label, key) in statusText"
         :key="key"
-        class="stat-card"
+        class="stat-card task-stat-card"
         :class="{ active: statusFilter === key }"
         @click="statusFilter = statusFilter === key ? '' : key"
-        style="cursor: pointer; min-height: 80px;"
       >
         <span class="label">{{ label }}</span>
-        <strong :style="{ color: 'var(--green)' }">{{ statusCounts[key] || 0 }}</strong>
-        <span class="trend" style="font-size: 10px;">当前页</span>
+        <strong v-if="!allTasksLoading" :style="{ color: 'var(--green)' }">{{ statusCounts[key] || 0 }}</strong>
+        <strong v-else style="color: var(--muted);">—</strong>
       </div>
     </div>
 
@@ -382,7 +417,8 @@ onMounted(load)
     </div>
 
     <!-- 任务列表 -->
-    <section class="panel">
+    <section class="panel task-list-panel">
+      <div class="task-list-content">
       <template v-if="loading">
         <SkeletonTable :rows="6" :columns="6" />
       </template>
@@ -404,6 +440,7 @@ onMounted(load)
         />
       </template>
       <template v-else>
+        <div style="width: 100%;">
         <el-table :data="tasks" stripe>
           <el-table-column label="优先级" width="88">
             <template #default="{ row }">
@@ -484,7 +521,9 @@ onMounted(load)
             @current-change="load"
           />
         </div>
+        </div>
       </template>
+      </div>
     </section>
 
     <!-- 任务详情抽屉 -->
@@ -656,6 +695,38 @@ onMounted(load)
   box-shadow: 0 0 0 1px var(--green);
 }
 
+.tasks-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.task-stat-card {
+  cursor: pointer;
+  min-height: 76px;
+  transition: all 0.2s;
+}
+
+.task-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.task-list-panel {
+  min-height: 480px;
+}
+
+.task-list-content {
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-list-content > * {
+  width: 100%;
+}
+
 .task-detail {
   padding: 4px 8px;
 }
@@ -709,24 +780,29 @@ onMounted(load)
     flex: 1;
   }
 
-  .stat-grid {
+  .tasks-stat-grid {
     grid-template-columns: repeat(3, 1fr) !important;
     gap: 6px !important;
     margin-bottom: 14px !important;
   }
 
-  .stat-card {
-    min-height: 68px !important;
+  .task-stat-card {
+    min-height: 64px !important;
     padding: 10px 8px !important;
   }
 
-  .stat-card .label {
+  .task-stat-card .label {
     font-size: 10px;
     line-height: 1.3;
   }
 
-  .stat-card strong {
+  .task-stat-card strong {
     font-size: 16px !important;
+  }
+
+  .task-list-panel,
+  .task-list-content {
+    min-height: 360px;
   }
 
   /* 表格横向滚动 */

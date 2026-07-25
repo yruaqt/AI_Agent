@@ -224,10 +224,12 @@ async function remove(id: string) {
 }
 
 // ── 发送消息（SSE 流式） ──
+let readerRef: ReadableStreamDefaultReader<Uint8Array> | null = null
 async function send(regenerateText?: string) {
   const text = (regenerateText || question.value).trim()
   if (!text || sending.value) return
   sending.value = true
+  readerRef = null
   if (!activeSession.value) await createSession()
   if (!activeSession.value) {
     sending.value = false
@@ -280,6 +282,7 @@ async function send(regenerateText?: string) {
     }
 
     const reader = response.body!.getReader()
+    readerRef = reader
     const decoder = new TextDecoder()
     let buffer = ''
     let firstDelta = true
@@ -371,6 +374,8 @@ async function send(regenerateText?: string) {
       ElMessage.error(e.message)
     }
   } finally {
+    // 释放 reader，防止连接泄漏导致后续请求超时
+    try { readerRef?.cancel() } catch {}
     // P1: 空内容处理
     if (!target.content.trim()) {
       target.content = '（AI 未返回有效内容，请重试）'
@@ -387,6 +392,8 @@ function stop() {
     controller.value.abort()
     controller.value = undefined
   }
+  try { readerRef?.cancel() } catch {}
+  readerRef = null
   sending.value = false
 }
 

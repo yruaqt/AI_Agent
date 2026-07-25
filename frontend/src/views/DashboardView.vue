@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import api,{unwrap} from '@/api'
 import type { Orchard,PageData } from '@/types'
-import { Refresh, ArrowRight, Cherry } from '@element-plus/icons-vue'
+import { Refresh, ArrowRight, Cherry, Clock } from '@element-plus/icons-vue'
 import SkeletonStatCard from '@/components/SkeletonStatCard.vue'
 import SkeletonPanel from '@/components/SkeletonPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -46,6 +46,72 @@ const phenologyNames:Record<string,string>={
   FRUIT_SET:'坐果期',
   MATURITY:'成熟期',
   HARVEST:'采收期'
+}
+
+const taskStatusMap:Record<string,string>={
+  DRAFT:'草稿',
+  CONFIRMED:'已确认',
+  TODO:'待执行',
+  DOING:'执行中',
+  DONE:'已完成',
+  CANCELLED:'已取消'
+}
+
+const priorityMap:Record<string,string>={
+  HIGH:'高',
+  MEDIUM:'中',
+  LOW:'低'
+}
+
+function getStatusTagType(status: string): string {
+  const map: Record<string, string> = {
+    DRAFT: 'info',
+    CONFIRMED: 'success',
+    TODO: 'warning',
+    DOING: 'primary',
+    DONE: 'success',
+    CANCELLED: 'danger'
+  }
+  return map[status] || 'info'
+}
+
+function formatUpdateTime(dateStr?: string): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return '刚刚更新'
+  if (minutes < 60) return `${minutes} 分钟前更新`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前更新`
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function getWeatherIcon(weather: string): string {
+  if (!weather) return '🌤️'
+  if (weather.includes('雷') || weather.includes('雷暴')) return '⛈️'
+  if (weather.includes('大雨') || weather.includes('暴雨')) return '🌧️'
+  if (weather.includes('雨')) return '🌦️'
+  if (weather.includes('雪')) return '🌨️'
+  if (weather.includes('雾') || weather.includes('霾')) return '🌫️'
+  if (weather.includes('阴')) return '☁️'
+  if (weather.includes('多云')) return '⛅'
+  if (weather.includes('晴')) return '☀️'
+  return '🌤️'
+}
+
+function getDayLabel(dateStr: string): string {
+  if (!dateStr) return ''
+  const today = new Date().toISOString().slice(0, 10)
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+  const dayAfter = new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 10)
+  if (dateStr === today) return '今天'
+  if (dateStr === tomorrow) return '明天'
+  if (dateStr === dayAfter) return '后天'
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  const date = new Date(dateStr)
+  return weekdays[date.getDay()]
 }
 </script>
 
@@ -114,9 +180,9 @@ const phenologyNames:Record<string,string>={
         <div class="stat-card">
           <span class="label">天气数据</span>
           <strong style="font-size:20px">{{ weather?.forecast?.[0]?.dayWeather || weather?.forecasts?.[0]?.phenomenon || '--' }}</strong>
-          <span :class="['trend', weather?.demoData?'priority-medium':'']">
-            {{ weather?.source || weather?.provider || '等待查询' }}
-            <span v-if="weather?.cached" class="cached-badge">（缓存）</span>
+          <span class="trend">
+            {{ weather?.provider || '等待查询' }}
+            <span v-if="weather?.updatedAt" class="update-time">{{ formatUpdateTime(weather.updatedAt) }}</span>
           </span>
         </div>
       </div>
@@ -143,28 +209,39 @@ const phenologyNames:Record<string,string>={
             <div
               v-for="task in tasks.slice(0,5)"
               :key="task.id"
-              class="task-row"
+              class="task-item"
             >
-              <span :class="`priority-bar ${task.priority.toLowerCase()}`"></span>
-              <div>
-                <strong>{{ task.title }}</strong>
-                <p>{{ task.content }}</p>
+              <div class="task-left">
+                <span :class="['priority-dot', `priority-${task.priority?.toLowerCase()}`]"></span>
               </div>
-              <div class="task-meta">
-                <span>{{ task.suggestedTime }}</span>
-                <el-tag size="small" effect="plain">{{ task.status }}</el-tag>
+              <div class="task-content">
+                <div class="task-title-row">
+                  <h4 class="task-title">{{ task.title }}</h4>
+                  <span :class="['task-priority-tag', `tag-${task.priority?.toLowerCase()}`]">
+                    {{ priorityMap[task.priority] || task.priority }}优先级
+                  </span>
+                </div>
+                <p class="task-desc">{{ task.content }}</p>
+                <div class="task-footer">
+                  <span class="task-time">
+                    <el-icon><Clock /></el-icon>
+                    {{ task.suggestedTime || '建议时间待确认' }}
+                  </span>
+                  <el-tag size="small" :type="getStatusTagType(task.status)">
+                    {{ taskStatusMap[task.status] || task.status }}
+                  </el-tag>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <aside class="panel">
+        <aside class="panel weather-panel">
           <header class="panel-header">
-            <h3>未来天气</h3>
-            <span v-if="weather?.demoData" class="status-pill amber">演示数据</span>
-            <span v-if="weather?.cached" class="status-pill">缓存数据</span>
+            <h3>天气信息</h3>
+            <span v-if="weather?.updatedAt" class="update-badge">{{ formatUpdateTime(weather.updatedAt) }}</span>
           </header>
-          <div class="weather-list">
+          <div class="weather-content">
             <div v-if="!weather || (!weather.forecast && !weather.forecasts)" class="weather-empty">
               <EmptyState
                 size="small"
@@ -175,27 +252,65 @@ const phenologyNames:Record<string,string>={
                 @action="load"
               />
             </div>
-            <div
-              v-for="day in (weather.forecast || weather.forecasts || [])"
-              :key="day.date"
-              class="weather-day"
-            >
-              <div>
-                <strong>{{ day.date?.slice(5) || day.dateStr }}</strong>
-                <span>{{ day.dayWeather || day.phenomenon }}</span>
+            <template v-else>
+              <div class="current-weather" v-if="weather.current">
+                <div class="current-left">
+                  <span class="current-icon">{{ getWeatherIcon(weather.current.weather) }}</span>
+                  <div class="current-info">
+                    <div class="current-temp">{{ weather.current.temperatureC }}°C</div>
+                    <div class="current-desc">{{ weather.current.weather }}</div>
+                  </div>
+                </div>
+                <div class="current-right">
+                  <div class="current-detail">
+                    <span class="detail-label">风向</span>
+                    <span class="detail-value">{{ weather.current.windDirection }}风</span>
+                  </div>
+                  <div class="current-detail">
+                    <span class="detail-label">风力</span>
+                    <span class="detail-value">{{ weather.current.windLevel }}级</span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <b>{{ day.maxTemperatureC || day.maxTemperature }}°</b>
-                <small>/ {{ day.minTemperatureC || day.minTemperature }}°</small>
+
+              <div class="forecast-section">
+                <div class="section-title">未来三天</div>
+                <div class="forecast-grid">
+                  <div
+                    v-for="day in (weather.forecast || weather.forecasts || [])"
+                    :key="day.date || day.dateStr"
+                    class="forecast-card"
+                  >
+                    <div class="forecast-day">
+                      <span class="day-label">{{ getDayLabel(day.date || day.dateStr) }}</span>
+                      <span class="day-date">{{ (day.date || day.dateStr)?.slice(5) }}</span>
+                    </div>
+                    <div class="forecast-icon">{{ getWeatherIcon(day.dayWeather || day.phenomenon) }}</div>
+                    <div class="forecast-weather">
+                      <span class="day-weather">{{ day.dayWeather || day.phenomenon }}</span>
+                      <span class="night-weather">夜 {{ day.nightWeather || '—' }}</span>
+                    </div>
+                    <div class="forecast-temp">
+                      <span class="temp-high">{{ day.maxTemperatureC || day.maxTemperature }}°</span>
+                      <span class="temp-divider">/</span>
+                      <span class="temp-low">{{ day.minTemperatureC || day.minTemperature }}°</span>
+                    </div>
+                    <div class="forecast-wind" v-if="day.windLevel">
+                      {{ day.windLevel }}级风
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <el-alert
-              v-if="weather?.warning"
-              :title="weather.warning"
-              type="warning"
-              :closable="false"
-              show-icon
-            />
+
+              <el-alert
+                v-if="weather?.warning"
+                :title="weather.warning"
+                type="warning"
+                :closable="false"
+                show-icon
+                class="weather-warning"
+              />
+            </template>
           </div>
         </aside>
       </div>
@@ -219,101 +334,336 @@ const phenologyNames:Record<string,string>={
 }
 
 .task-list {
-  padding: 0 18px;
+  padding: 8px 18px 18px;
 }
 
 .task-empty {
   padding: 8px 0;
 }
 
-.task-row {
-  display: grid;
-  grid-template-columns: 4px 1fr auto;
+.task-item {
+  display: flex;
   gap: 14px;
-  align-items: center;
   padding: 16px 0;
   border-bottom: 1px solid var(--line);
 }
 
-.task-row:last-child {
-  border: 0;
+.task-item:last-child {
+  border-bottom: 0;
 }
 
-.task-row strong {
-  font-size: 13px;
+.task-left {
+  flex-shrink: 0;
+  padding-top: 4px;
 }
 
-.task-row p {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 640px;
-}
-
-.priority-bar {
-  height: 34px;
-  border-radius: 2px;
+.priority-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
   background: var(--green);
+  flex-shrink: 0;
+  margin-top: 4px;
 }
 
-.priority-bar.high {
+.priority-dot.priority-high {
   background: var(--red);
+  box-shadow: 0 0 0 3px rgba(179, 74, 67, 0.15);
 }
 
-.priority-bar.medium {
+.priority-dot.priority-medium {
   background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(197, 137, 50, 0.15);
 }
 
-.task-meta {
+.priority-dot.priority-low {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(46, 107, 78, 0.15);
+}
+
+.task-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-title-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  color: var(--muted);
-  font-size: 11px;
+  flex-wrap: wrap;
 }
 
-.weather-list {
-  padding: 7px 18px 18px;
+.task-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.task-priority-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.task-priority-tag.tag-high {
+  background: #fef0ef;
+  color: var(--red);
+}
+
+.task-priority-tag.tag-medium {
+  background: #fff8ed;
+  color: var(--amber);
+}
+
+.task-priority-tag.tag-low {
+  background: #edf4ef;
+  color: var(--green);
+}
+
+.task-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.task-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.task-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.task-time .el-icon {
+  font-size: 14px;
+}
+
+.weather-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.weather-panel .panel-header {
+  flex-shrink: 0;
+}
+
+.weather-content {
+  padding: 4px 18px 18px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .weather-empty {
   padding: 8px 0;
 }
 
-.weather-day {
+.current-weather {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 2px;
-  border-bottom: 1px solid var(--line);
+  padding: 20px 16px;
+  background: linear-gradient(135deg, var(--green-light) 0%, #f0f7f2 100%);
+  border-radius: 8px;
+  margin: 14px 0 20px;
 }
 
-.weather-day > div {
+.current-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.current-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.current-info {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.weather-day span,
-.weather-day small {
+.current-temp {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1;
+}
+
+.current-desc {
+  font-size: 13px;
   color: var(--muted);
+}
+
+.current-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.current-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.detail-label {
   font-size: 11px;
+  color: var(--muted);
 }
 
-.weather-day b {
-  font-size: 20px;
+.detail-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
 }
 
-.weather-list .el-alert {
-  margin-top: 14px;
+.forecast-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-.cached-badge {
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding-left: 2px;
+}
+
+.forecast-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  flex: 1;
+}
+
+.forecast-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px 8px;
+  background: #fafbf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: center;
+  min-height: 150px;
+}
+
+.forecast-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.day-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.day-date {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.forecast-icon {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.forecast-weather {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.day-weather {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.night-weather {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.forecast-temp {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.temp-high {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.temp-divider {
+  color: var(--muted);
+}
+
+.temp-low {
+  color: var(--muted);
+}
+
+.forecast-wind {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.weather-warning {
+  margin-top: 16px;
+}
+
+.update-badge {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.update-time {
+  display: block;
   font-size: 10px;
-  opacity: 0.8;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 .empty-inline {
@@ -325,38 +675,30 @@ const phenologyNames:Record<string,string>={
 
 @media (max-width: 760px) {
   .task-list {
-    padding: 0 14px;
+    padding: 8px 14px 14px;
   }
 
-  .task-row {
-    gap: 10px;
+  .task-item {
+    gap: 12px;
     padding: 14px 0;
   }
 
-  .task-row strong {
+  .task-title {
+    font-size: 13px;
+  }
+
+  .task-desc {
     font-size: 12px;
-  }
-
-  .task-row p {
-    font-size: 11px;
-    max-width: none;
     -webkit-line-clamp: 2;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
   }
 
-  .priority-bar {
-    height: 30px;
+  .priority-dot {
+    width: 8px;
+    height: 8px;
   }
 
-  .task-meta {
-    font-size: 10px;
-    gap: 6px;
-  }
-
-  .task-meta .el-tag {
-    font-size: 10px;
+  .task-time {
+    font-size: 11px;
   }
 
   .panel-header {
@@ -367,21 +709,34 @@ const phenologyNames:Record<string,string>={
     padding: 14px;
   }
 
-  .weather-list {
-    padding: 6px 14px 14px;
+  .weather-content {
+    padding: 4px 14px 14px;
   }
 
-  .weather-day {
-    padding: 12px 2px;
+  .current-weather {
+    padding: 16px 14px;
+    margin: 12px 0 16px;
   }
 
-  .weather-day b {
-    font-size: 18px;
+  .current-icon {
+    font-size: 40px;
   }
 
-  .weather-day span,
-  .weather-day small {
-    font-size: 10px;
+  .current-temp {
+    font-size: 26px;
+  }
+
+  .forecast-card {
+    padding: 12px 6px;
+    gap: 6px;
+  }
+
+  .forecast-icon {
+    font-size: 24px;
+  }
+
+  .day-weather {
+    font-size: 11px;
   }
 
   .content-grid {
@@ -390,23 +745,20 @@ const phenologyNames:Record<string,string>={
 }
 
 @media (max-width: 600px) {
-  .task-row {
-    grid-template-columns: 3px 1fr;
+  .task-title-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .task-meta {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  .task-row p {
-    max-width: none;
+  .task-priority-tag {
+    align-self: flex-start;
   }
 }
 
 @media (max-width: 480px) {
-  .task-meta {
-    display: none;
+  .task-footer {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>
