@@ -668,17 +668,13 @@ onMounted(loadOrchards)
   background: var(--green-light);
 }
 
-.name-cell,
-.region-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .name-cell .icon,
 .region-cell .icon {
   color: var(--green);
-  font-size: 16px;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 6px;
 }
 
 .phenology-cell {

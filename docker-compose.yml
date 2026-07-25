@@ -22,6 +22,10 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
       DEMO_DATA_ENABLED: ${DEMO_DATA_ENABLED:-true}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-123456}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-qwen-plus}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      LLM_EMBEDDING_MODEL: ${LLM_EMBEDDING_MODEL:-text-embedding-v3}
     depends_on:
       postgres:
         condition: service_healthy

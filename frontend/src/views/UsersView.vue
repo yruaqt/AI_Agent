@@ -475,8 +475,17 @@ onMounted(load)
 
 .data-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
+}
+
+.data-table th,
+.data-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .data-table th {
@@ -485,7 +494,6 @@ onMounted(load)
   text-align: left;
   font-weight: 600;
   color: var(--green-dark);
-  white-space: nowrap;
   border-bottom: 2px solid var(--line);
 }
 
@@ -493,23 +501,44 @@ onMounted(load)
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
+  vertical-align: middle;
 }
+
+/* 列宽分配 */
+.data-table th:nth-child(1),
+.data-table td:nth-child(1) { width: 18%; }
+.data-table th:nth-child(2),
+.data-table td:nth-child(2) { width: 18%; }
+.data-table th:nth-child(3),
+.data-table td:nth-child(3) { width: 14%; }
+.data-table th:nth-child(4),
+.data-table td:nth-child(4) { width: 10%; }
+.data-table th:nth-child(5),
+.data-table td:nth-child(5) { width: 20%; }
+.data-table th:nth-child(6),
+.data-table td:nth-child(6) { width: 20%; }
 
 .data-table tbody tr:hover {
   background: var(--green-light);
 }
 
 .name-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .name-cell .icon {
   color: var(--green);
   font-size: 16px;
-  flex: none;
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.name-cell strong {
+  vertical-align: middle;
 }
 
 .username-cell {
@@ -574,13 +603,19 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: white;
   color: var(--muted);
+  font-size: 14px;
   transition: all 0.2s;
+}
+
+.action-btn :deep(svg) {
+  width: 14px;
+  height: 14px;
 }
 
 .action-btn:hover {
@@ -619,6 +654,11 @@ onMounted(load)
   color: var(--green);
 }
 
+.loading-overlay .is-loading svg {
+  width: 22px;
+  height: 22px;
+}
+
 .empty-state {
   padding: 48px 24px;
   text-align: center;
@@ -629,6 +669,11 @@ onMounted(load)
   font-size: 48px;
   color: var(--line);
   margin-bottom: 12px;
+}
+
+.empty-icon svg {
+  width: 48px;
+  height: 48px;
 }
 
 .empty-state p {

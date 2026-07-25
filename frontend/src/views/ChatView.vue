@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import api, { unwrap } from '@/api'
 import type { Orchard, PageData } from '@/types'
 import {
   Plus, Delete, Promotion, VideoPause, Document,
-  Loading, Check, Close, Expand
+  Loading, Check, Close, Expand, CopyDocument, RefreshRight
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import SkeletonChat from '@/components/SkeletonChat.vue'
-import ErrorState from '@/components/ErrorState.vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
+// ── 类型定义 ──
 interface Citation {
   documentId?: string
   documentName?: string
@@ -23,18 +24,22 @@ interface Citation {
 interface ToolCall {
   name: string
   status: string
-  summary?: string
+  summary?: string | Record<string, any>
 }
 
 interface Message {
   id?: string
+  _ts: number
   role: string
   content: string
   citations?: Citation[]
   tools?: ToolCall[]
   streaming?: boolean
+  error?: boolean
+  lastQuestion?: string
 }
 
+// ── 响应式状态 ──
 const orchard = ref<Orchard | null>(null)
 const sessions = ref<any[]>([])
 const activeSession = ref<string>()
@@ -48,6 +53,53 @@ const initLoading = ref(false)
 const initError = ref<string | null>(null)
 const sessionError = ref<string | null>(null)
 
+// ── 滚动控制 ──
+let isNearBottom = true
+const SCROLL_THRESHOLD = 80
+let scrollRafId: number | null = null
+
+function onScroll() {
+  if (!scrollRef.value) return
+  const { scrollTop, scrollHeight, clientHeight } = scrollRef.value
+  isNearBottom = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD
+}
+
+function scrollToBottom(force = false) {
+  if (scrollRafId !== null) cancelAnimationFrame(scrollRafId)
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
+    if (!scrollRef.value) return
+    if (force || isNearBottom) {
+      scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+    }
+  })
+}
+
+// ── Markdown 渲染 ──
+marked.setOptions({ breaks: true, gfm: true })
+
+const markedRenderer = new marked.Renderer()
+markedRenderer.link = function({ href, text }) {
+  return `<a href="${href}" target="_blank" rel="noopener">${text}</a>`
+}
+marked.use({ renderer: markedRenderer })
+
+function renderMarkdown(content: string): string {
+  if (!content) return ''
+  let rawHtml = marked.parse(content, { async: false }) as string
+  rawHtml = rawHtml.replace(
+    /<pre><code([^>]*)>([\s\S]*?)<\/code><\/pre>/g,
+    '<pre><code$1>$2</code><button class="copy-code-btn" onclick="navigator.clipboard.writeText(this.previousElementSibling?.textContent||\'\')">复制</button></pre>'
+  )
+  return DOMPurify.sanitize(rawHtml, {
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li',
+      'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead',
+      'tbody', 'tr', 'th', 'td', 'a', 'span', 'del', 'hr', 'button'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'onclick']
+  })
+}
+
+// ── 初始化 ──
 async function init() {
   const savedId = localStorage.getItem('currentOrchardId')
   initLoading.value = true
@@ -62,10 +114,9 @@ async function init() {
       orchard.value = data.items[0] || null
     }
     await loadSessions()
-    if (sessions.value[0]) await select(sessions.value[0].id)
+    if (sessions.value[0]) await select(sessions.value[0].sessionId)
   } catch (e: any) {
     initError.value = e?.message || '初始化失败，请稍后重试'
-    console.error('初始化聊天页面失败', e)
   } finally {
     initLoading.value = false
   }
@@ -80,7 +131,6 @@ async function loadSessions() {
   } catch (e: any) {
     sessionError.value = e?.message || '加载会话列表失败'
     sessions.value = []
-    console.error('加载会话列表失败', e)
   }
 }
 
@@ -93,30 +143,53 @@ async function createSession() {
     await api.post('/chat/sessions', { orchardId: orchard.value.id, title: '新对话' })
   )
   sessions.value.unshift(s)
-  activeSession.value = s.id
+  activeSession.value = s.sessionId
   messages.value = []
 }
 
 async function select(id: string) {
+  // P0: 切换会话前终止旧 SSE 请求
+  stop()
   activeSession.value = id
   sessionPaneVisible.value = false
+  isNearBottom = true
   try {
     const d = unwrap<PageData<any>>(await api.get(`/chat/sessions/${id}/messages?pageSize=50`))
-    messages.value = d.items.map((m: any) => ({
+    messages.value = d.items.map((m: any, i: number) => ({
       ...m,
-      role: m.role || 'assistant',
-      content: m.content || '',
+      _ts: Date.now() + i,
+      role: normalizeRole(m.role, i, d.items.length),
+      content: m.content || m.answer || '',
       citations: m.citationsJson
-        ? JSON.parse(m.citationsJson)
+        ? safeParse(m.citationsJson, [])
         : m.citations || [],
       tools: m.toolsJson
-        ? JSON.parse(m.toolsJson)
+        ? safeParse(m.toolsJson, [])
         : m.toolCalls || m.tools || []
     }))
   } catch {
     messages.value = []
   }
-  scroll()
+  scrollToBottom(true)
+}
+
+function safeParse(str: string, fallback: any) {
+  try {
+    return JSON.parse(str)
+  } catch {
+    return fallback
+  }
+}
+
+/** 将后端 role 值统一为 'user' | 'assistant'，兼容大写、缺失等情况 */
+function normalizeRole(role: string | undefined, index: number, total: number): 'user' | 'assistant' {
+  if (role) {
+    const r = role.toLowerCase()
+    if (r === 'user' || r === 'human' || r === 'me') return 'user'
+    if (r === 'assistant' || r === 'ai' || r === 'bot' || r === 'system') return 'assistant'
+  }
+  // role 缺失时按奇偶推断：偶数索引为 user，奇数为 assistant
+  return index % 2 === 0 ? 'user' : 'assistant'
 }
 
 async function remove(id: string) {
@@ -127,36 +200,44 @@ async function remove(id: string) {
       type: 'warning'
     })
     await api.delete(`/chat/sessions/${id}`)
-    sessions.value = sessions.value.filter((s) => s.id !== id)
+    sessions.value = sessions.value.filter((s) => s.sessionId !== id)
     if (activeSession.value === id) {
+      stop()
       activeSession.value = undefined
       messages.value = []
     }
   } catch (e: any) {
-    if (e !== 'cancel' && e?.name !== 'ElMessageBoxClose') {
-      // ignore cancel
-    }
+    // 用户取消删除，忽略
   }
 }
 
-async function send() {
-  const text = question.value.trim()
+// ── 发送消息（SSE 流式） ──
+async function send(regenerateText?: string) {
+  const text = (regenerateText || question.value).trim()
   if (!text || sending.value) return
+  sending.value = true
   if (!activeSession.value) await createSession()
-  if (!activeSession.value) return
-  question.value = ''
-  messages.value.push({ role: 'user', content: text })
-  const target: Message = {
+  if (!activeSession.value) {
+    sending.value = false
+    return
+  }
+
+  if (!regenerateText) question.value = ''
+
+  messages.value.push({ _ts: Date.now(), role: 'user', content: text })
+  messages.value.push({
+    _ts: Date.now() + 1,
     role: 'assistant',
     content: '',
     citations: [],
     tools: [],
-    streaming: true
-  }
-  messages.value.push(target)
-  sending.value = true
+    streaming: true,
+    lastQuestion: text
+  })
+  const target = messages.value[messages.value.length - 1]
   controller.value = new AbortController()
-  scroll()
+  isNearBottom = true
+  scrollToBottom(true)
 
   try {
     const token = localStorage.getItem('accessToken')
@@ -173,62 +254,116 @@ async function send() {
         signal: controller.value.signal
       }
     )
+
+    // P0: SSE 401 处理 —— 跳转登录
+    if (response.status === 401) {
+      localStorage.removeItem('accessToken')
+      ElMessage.warning('登录已过期，请重新登录')
+      setTimeout(() => { window.location.href = '/login' }, 800)
+      throw new Error('登录已过期')
+    }
     if (!response.ok) {
       const err = await response.json().catch(() => ({}))
-      throw new Error(err.message || '生成失败')
+      throw new Error(err.message || `请求失败 (${response.status})`)
     }
+
     const reader = response.body!.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
-    while (true) {
+    let firstDelta = true
+    let doneReceived = false
+
+    while (!doneReceived) {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const blocks = buffer.split('\n\n')
       buffer = blocks.pop() || ''
+
       for (const block of blocks) {
-        let event = 'message',
-          data = ''
+        let event = 'message', data = ''
         for (const line of block.split('\n')) {
           if (line.startsWith('event:')) event = line.slice(6).trim()
           if (line.startsWith('data:')) data += line.slice(5).trim()
         }
         if (!data) continue
-        const parsed = JSON.parse(data)
-        if (event === 'delta') target.content += parsed.content || ''
+
+        // P1: JSON.parse 异常保护
+        let parsed: any
+        try {
+          parsed = JSON.parse(data)
+        } catch {
+          continue
+        }
+
+        if (event === 'delta') {
+          if (firstDelta) {
+            target.content = ''
+            firstDelta = false
+          }
+          target.content += parsed.content || ''
+        }
         if (event === 'citation') target.citations!.push(parsed)
-        if (event === 'tool_call')
+        if (event === 'tool_call') {
           target.tools!.push({
             name: parsed.name,
             status: parsed.status || 'RUNNING',
             summary: ''
           })
+        }
         if (event === 'tool_result') {
           const existing = target.tools!.find(
             (t) => t.name === parsed.name && t.status === 'RUNNING'
           )
+          let summary: string | Record<string, any> = parsed.summary || ''
+          if (typeof summary === 'string') {
+            try {
+              summary = JSON.parse(summary)
+            } catch {
+              // 保持字符串原样
+            }
+          }
           if (existing) {
             existing.status = parsed.status || 'SUCCESS'
-            existing.summary = parsed.summary || ''
+            existing.summary = summary
           } else {
             target.tools!.push({
               name: parsed.name,
               status: parsed.status || 'SUCCESS',
-              summary: parsed.summary || ''
+              summary
             })
           }
         }
         if (event === 'error') throw new Error(parsed.message || '生成失败')
-        await scroll()
+        if (event === 'done') {
+          doneReceived = true
+          break
+        }
+        scrollToBottom()
       }
     }
     await loadSessions()
   } catch (e: any) {
-    if (e.name !== 'AbortError') {
-      target.content += `\n\n生成失败：${e.message}`
+    if (e.name === 'AbortError') {
+      // P3: 用户主动终止，标记内容不完整
+      if (target.content) {
+        target.content += '\n\n⚠️ [已停止生成]'
+      }
+    } else {
+      // P3: 网络断连标记
+      if (target.content) {
+        target.content += '\n\n⚠️ [内容因网络中断可能不完整]\n\n'
+      }
+      target.content += `生成失败：${e.message}`
+      target.error = true
       ElMessage.error(e.message)
     }
   } finally {
+    // P1: 空内容处理
+    if (!target.content.trim()) {
+      target.content = '（AI 未返回有效内容，请重试）'
+      target.error = true
+    }
     target.streaming = false
     sending.value = false
     controller.value = undefined
@@ -236,55 +371,114 @@ async function send() {
 }
 
 function stop() {
-  controller.value?.abort()
+  if (controller.value) {
+    controller.value.abort()
+    controller.value = undefined
+  }
   sending.value = false
 }
 
-async function scroll() {
-  await nextTick()
-  if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+// ── 操作按钮 ──
+function copyMessage(m: Message) {
+  navigator.clipboard.writeText(m.content).then(() => {
+    ElMessage.success('已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
 }
 
+function regenerate(m: Message) {
+  if (!m.lastQuestion) return
+  // 删除这条失败的/旧的回答
+  const idx = messages.value.findIndex(x => x._ts === m._ts)
+  if (idx >= 0) messages.value.splice(idx, 1)
+  send(m.lastQuestion)
+}
+
+async function clearConversation() {
+  if (!messages.value.length) return
+  try {
+    await ElMessageBox.confirm('确定清空当前对话的所有消息吗？', '清空对话', {
+      confirmButtonText: '清空',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    messages.value = []
+  } catch {
+    // 用户取消
+  }
+}
+
+// ── 输入框 ──
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault()
+    send()
+  } else if (e.key === 'Enter' && e.ctrlKey) {
+    e.preventDefault()
+    send()
+  }
+}
+
+// ── 快捷提问 ──
+function quickAsk(q: string) {
+  question.value = q
+  send()
+}
+
+// ── 生命周期 ──
 onMounted(() => init().catch(() => {}))
+
+// P0: 组件卸载时终止 SSE 请求
+onBeforeUnmount(() => {
+  stop()
+})
 </script>
 
 <template>
   <div class="chat-workspace">
+    <!-- 移动端遮罩 -->
+    <div
+      v-if="sessionPaneVisible"
+      class="mobile-overlay"
+      @click="sessionPaneVisible = false"
+    />
+
     <aside class="session-pane" :class="{ show: sessionPaneVisible }">
       <el-button type="primary" :icon="Plus" @click="createSession" :disabled="initLoading">新建会话</el-button>
-      <div v-if="initLoading" class="session-skeleton">
-        <SkeletonChat type="session" />
-      </div>
+
+      <template v-if="initLoading">
+        <div class="session-skeleton">
+          <div v-for="i in 5" :key="i" class="skeleton-item">
+            <div class="skeleton-line w80"></div>
+            <div class="skeleton-line w40"></div>
+          </div>
+        </div>
+      </template>
       <template v-else-if="initError">
-        <ErrorState
-          size="small"
-          title="初始化失败"
-          description="无法加载果园和会话数据，请检查网络连接"
-          :error="initError"
-          @retry="init"
-        />
+        <div class="session-error">
+          <p>{{ initError }}</p>
+          <el-button size="small" @click="init">重试</el-button>
+        </div>
       </template>
       <template v-else-if="sessionError">
-        <ErrorState
-          size="small"
-          title="加载会话失败"
-          description="无法获取会话列表，请稍后重试"
-          :error="sessionError"
-          @retry="loadSessions"
-        />
+        <div class="session-error">
+          <p>{{ sessionError }}</p>
+          <el-button size="small" @click="loadSessions">重试</el-button>
+        </div>
       </template>
       <template v-else>
         <div v-if="!sessions.length" class="session-empty">暂无会话</div>
         <div class="session-list">
           <button
             v-for="s in sessions"
-            :key="s.id"
-            :class="{ active: activeSession === s.id }"
-            @click="select(s.id)"
+            :key="s.sessionId"
+            :class="{ active: activeSession === s.sessionId }"
+            @click="select(s.sessionId)"
           >
             <span>{{ s.title || '新对话' }}</span>
             <small>{{ s.createdAt?.slice(5, 16).replace('T', ' ') }}</small>
-            <el-icon title="删除会话" @click.stop="remove(s.id)"><Delete /></el-icon>
+            <el-icon title="删除会话" @click.stop="remove(s.sessionId)"><Delete /></el-icon>
           </button>
         </div>
       </template>
@@ -302,71 +496,120 @@ onMounted(() => init().catch(() => {}))
             <span v-else class="muted">正在初始化...</span>
           </div>
         </div>
-        <span class="status-pill">Agent 在线</span>
+        <div class="chat-header-right">
+          <button
+            v-if="messages.length && !sending"
+            class="header-action-btn"
+            title="清空对话"
+            @click="clearConversation"
+          >
+            <el-icon><Delete /></el-icon>
+          </button>
+          <span class="status-pill">Agent 在线</span>
+        </div>
       </header>
 
-      <div ref="scrollRef" class="messages">
+      <div ref="scrollRef" class="messages" @scroll="onScroll">
         <template v-if="initLoading">
-          <SkeletonChat type="message" />
+          <div class="skeleton-messages">
+            <div class="skeleton-msg assistant">
+              <div class="sk-avatar"></div>
+              <div class="sk-body">
+                <div class="sk-line w30"></div>
+                <div class="sk-line w100"></div>
+                <div class="sk-line w80"></div>
+                <div class="sk-line w50"></div>
+              </div>
+            </div>
+          </div>
         </template>
         <template v-else-if="initError">
-          <ErrorState
-            title="初始化失败"
-            description="无法加载聊天数据，请检查网络连接后重试"
-            :error="initError"
-            @retry="init"
-          />
+          <div class="chat-error-state">
+            <p class="error-title">初始化失败</p>
+            <p class="error-desc">{{ initError }}</p>
+            <el-button type="primary" @click="init">重新加载</el-button>
+          </div>
         </template>
         <template v-else>
           <div v-if="!messages.length" class="chat-empty">
             <div class="olive-seal">榄</div>
             <h2>今天需要了解什么？</h2>
             <div class="suggestions">
-              <button
-                @click="question = '未来两天有大雨，幼果期是否需要灌溉和施肥？'; send()"
-              >
-                雨前水肥安排
-              </button>
-              <button
-                @click="question = '300株橄榄树，每株施肥12千克，总量是多少？'; send()"
-              >
-                肥料总量计算
-              </button>
-              <button
-                @click="question = '近期幼果落果较多，应先检查什么？'; send()"
-              >
-                幼果落果排查
-              </button>
+              <button @click="quickAsk('未来两天有大雨，幼果期是否需要灌溉和施肥？')">雨前水肥安排</button>
+              <button @click="quickAsk('300株橄榄树，每株施肥12千克，总量是多少？')">肥料总量计算</button>
+              <button @click="quickAsk('近期幼果落果较多，应先检查什么？')">幼果落果排查</button>
             </div>
           </div>
 
           <article
-            v-for="(m, i) in messages"
-            :key="i"
-            :class="['message', m.role]"
+            v-for="m in messages"
+            :key="m._ts"
+            :class="['message', m.role, { error: m.error }]"
           >
             <div class="avatar">{{ m.role === 'user' ? '我' : '榄' }}</div>
             <div class="message-body">
               <div class="message-label">
                 {{ m.role === 'user' ? '我的问题' : '榄园知行 Agent' }}
               </div>
-              <div class="message-content">
-                {{ m.content }}<span v-if="m.streaming" class="cursor"></span>
+
+              <!-- P2: 思考中占位 -->
+              <div v-if="m.streaming && !m.content" class="thinking">
+                <span class="think-dot"></span>
+                <span class="think-dot"></span>
+                <span class="think-dot"></span>
+                正在思考...
               </div>
 
+              <!-- P0: Markdown 渲染 -->
+              <div
+                v-else
+                class="message-content markdown-body"
+                v-html="renderMarkdown(m.content)"
+              ></div>
+
               <div v-if="m.tools?.length" class="tool-list">
-                <span
-                  v-for="t in m.tools"
-                  :key="t.name + '-' + t.status"
+                <div
+                  v-for="(t, ti) in m.tools"
+                  :key="t.name + '-' + ti"
                   :class="['tool-chip', (t.status || '').toLowerCase()]"
                 >
-                  <el-icon v-if="t.status === 'RUNNING'" class="is-loading">
-                    <Loading />
-                  </el-icon>
-                  <el-icon v-else-if="t.status === 'SUCCESS'"><Check /></el-icon>
-                  <el-icon v-else><Close /></el-icon>
-                  {{ t.summary || t.name }}
-                </span>
+                  <div class="tool-header">
+                    <el-icon v-if="t.status === 'RUNNING'" class="is-loading"><Loading /></el-icon>
+                    <el-icon v-else-if="t.status === 'SUCCESS'"><Check /></el-icon>
+                    <el-icon v-else><Close /></el-icon>
+                    <span class="tool-name">{{ t.name }}</span>
+                  </div>
+                  <div v-if="typeof t.summary === 'object' && t.summary" class="tool-summary">
+                    <template v-for="(val, key) in t.summary" :key="key">
+                      <div v-if="Array.isArray(val)" class="summary-group">
+                        <span class="summary-key">{{ key }}:</span>
+                        <div v-for="(item, idx) in val" :key="idx" class="summary-item">
+                          <span v-if="typeof item === 'object'">
+                            <span v-for="(v, k) in item" :key="k" class="nested-item">
+                              <span class="nested-key">{{ k }}:</span>
+                              <span class="nested-value">{{ v }}</span>
+                            </span>
+                          </span>
+                          <span v-else>{{ item }}</span>
+                        </div>
+                      </div>
+                      <div v-else-if="typeof val === 'object'" class="summary-group">
+                        <span class="summary-key">{{ key }}:</span>
+                        <div class="summary-item">
+                          <span v-for="(v, k) in val" :key="k" class="nested-item">
+                            <span class="nested-key">{{ k }}:</span>
+                            <span class="nested-value">{{ v }}</span>
+                          </span>
+                        </div>
+                      </div>
+                      <div v-else class="summary-item">
+                        <span class="summary-key">{{ key }}:</span>
+                        <span class="summary-value">{{ val }}</span>
+                      </div>
+                    </template>
+                  </div>
+                  <span v-else-if="t.summary">{{ t.summary }}</span>
+                </div>
               </div>
 
               <details v-if="m.citations?.length" class="citations">
@@ -375,12 +618,8 @@ onMounted(() => init().catch(() => {}))
                   {{ m.citations.length }} 条知识来源
                 </summary>
                 <div
-                  v-for="c in m.citations"
-                  :key="
-                    (c.documentId || '') +
-                    '-' +
-                    (c.chunkId || c.chunkNo || c.page || '')
-                  "
+                  v-for="(c, ci) in m.citations"
+                  :key="ci"
                 >
                   <strong>
                     {{ c.documentName || '未知来源' }} ·
@@ -389,6 +628,34 @@ onMounted(() => init().catch(() => {}))
                   <p>{{ c.quote || c.content }}</p>
                 </div>
               </details>
+
+              <!-- P2: AI 回复操作按钮 -->
+              <div
+                v-if="m.role === 'assistant' && !m.streaming && m.content"
+                class="message-actions"
+              >
+                <button class="action-btn" title="复制" @click="copyMessage(m)">
+                  <el-icon><CopyDocument /></el-icon>
+                </button>
+                <button
+                  v-if="m.error || m.lastQuestion"
+                  class="action-btn"
+                  title="重新生成"
+                  @click="regenerate(m)"
+                >
+                  <el-icon><RefreshRight /></el-icon>
+                </button>
+              </div>
+
+              <!-- 用户消息复制按钮 -->
+              <div
+                v-if="m.role === 'user' && !m.streaming"
+                class="message-actions"
+              >
+                <button class="action-btn" title="复制" @click="copyMessage(m)">
+                  <el-icon><CopyDocument /></el-icon>
+                </button>
+              </div>
             </div>
           </article>
         </template>
@@ -399,25 +666,14 @@ onMounted(() => init().catch(() => {}))
           v-model="question"
           type="textarea"
           :autosize="{ minRows: 2, maxRows: 5 }"
-          placeholder="输入果园管理问题…"
+          placeholder="输入果园管理问题…（Enter 发送，Shift+Enter 换行）"
           resize="none"
-          @keydown.ctrl.enter="send"
+          @keydown="onKeydown"
         />
-        <button
-          v-if="sending"
-          class="send-button stop"
-          title="停止生成"
-          @click="stop"
-        >
+        <button v-if="sending" class="send-button stop" title="停止生成" @click="stop">
           <el-icon><VideoPause /></el-icon>
         </button>
-        <button
-          v-else
-          class="send-button"
-          title="发送"
-          :disabled="!question.trim()"
-          @click="send"
-        >
+        <button v-else class="send-button" title="发送" :disabled="!question.trim()" @click="send()">
           <el-icon><Promotion /></el-icon>
         </button>
       </footer>
@@ -435,7 +691,10 @@ onMounted(() => init().catch(() => {}))
   display: grid;
   grid-template-columns: 230px 1fr;
   overflow: hidden;
+  position: relative;
 }
+
+/* ── 侧栏 ── */
 .session-pane {
   background: #f7f9f7;
   border-right: 1px solid var(--line);
@@ -449,6 +708,16 @@ onMounted(() => init().catch(() => {}))
   font-size: 12px;
   text-align: center;
   padding: 20px 0;
+}
+.session-error {
+  color: var(--red);
+  font-size: 12px;
+  text-align: center;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
 }
 .session-list {
   display: flex;
@@ -494,10 +763,44 @@ onMounted(() => init().catch(() => {}))
   background: #dce5df;
   color: var(--red);
 }
+
+/* ── 骨架屏 ── */
+.session-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.skeleton-item {
+  padding: 11px;
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e8ecea 25%, #f0f3f1 50%, #e8ecea 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+.w30 { width: 30%; }
+.w40 { width: 40%; }
+.w50 { width: 50%; }
+.w80 { width: 80%; }
+.w100 { width: 100%; }
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── 聊天主区域 ── */
 .chat-main {
   min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-rows: 64px 1fr auto;
+  overflow: hidden;
 }
 .chat-header {
   border-bottom: 1px solid var(--line);
@@ -510,6 +813,26 @@ onMounted(() => init().catch(() => {}))
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.header-action-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 5px;
+  color: var(--muted);
+  transition: all 0.2s;
+}
+.header-action-btn:hover {
+  border-color: var(--red);
+  color: var(--red);
 }
 .session-toggle {
   display: none;
@@ -531,16 +854,15 @@ onMounted(() => init().catch(() => {}))
   flex-direction: column;
   gap: 4px;
 }
-.chat-header strong {
-  font-size: 13px;
-}
-.chat-header span:not(.status-pill) {
-  font-size: 10px;
-  color: var(--muted);
-}
+.chat-header strong { font-size: 13px; }
+.chat-header span:not(.status-pill) { font-size: 10px; color: var(--muted); }
+
+/* ── 消息列表 ── */
 .messages {
-  overflow: auto;
+  overflow-y: auto;
+  min-height: 0;
   padding: 20px max(20px, 8%);
+  scroll-behavior: smooth;
 }
 .chat-empty {
   display: grid;
@@ -558,10 +880,7 @@ onMounted(() => init().catch(() => {}))
   font: 700 25px serif;
   border-radius: 6px;
 }
-.chat-empty h2 {
-  font-size: 20px;
-  margin: 16px;
-}
+.chat-empty h2 { font-size: 20px; margin: 16px; }
 .suggestions {
   display: flex;
   gap: 8px;
@@ -580,26 +899,38 @@ onMounted(() => init().catch(() => {}))
   border-color: var(--green);
   color: var(--green);
 }
+
+/* ── 消息项 ── */
 .message {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
+  display: flex;
   gap: 12px;
   margin-bottom: 24px;
+}
+.message.user {
+  flex-direction: row-reverse;
 }
 .avatar {
   width: 32px;
   height: 32px;
-  border-radius: 5px;
+  border-radius: 50%;
   background: #e8ede9;
   display: grid;
   place-items: center;
   font-size: 12px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 .assistant .avatar {
   background: var(--green);
   color: white;
   font-family: serif;
+}
+.user .avatar {
+  background: #4a8eff;
+  color: white;
+}
+.message-body {
+  max-width: 75%;
 }
 .message-label {
   font-size: 11px;
@@ -607,25 +938,52 @@ onMounted(() => init().catch(() => {}))
   margin: 0 0 7px;
 }
 .message-content {
-  white-space: pre-wrap;
   line-height: 1.8;
   font-size: 14px;
+  word-break: break-word;
+}
+.assistant .message-content {
+  background: #f7f9f7;
+  border-radius: 12px 12px 12px 0;
+  padding: 10px 14px;
 }
 .user .message-content {
-  display: inline-block;
-  background: #f1f4f1;
-  border-radius: 5px;
-  padding: 10px 13px;
+  background: #4a8eff;
+  color: white;
+  border-radius: 12px 12px 0 12px;
+  padding: 10px 14px;
 }
-.cursor {
-  display: inline-block;
-  width: 2px;
-  height: 15px;
+.message.error .message-content {
+  color: var(--red);
+}
+.user .message.error .message-content {
+  color: #ffcad4;
+}
+
+/* ── 思考中动画 ── */
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 0;
+}
+.think-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: var(--green);
-  margin-left: 3px;
-  vertical-align: middle;
-  animation: blink 1s infinite;
+  animation: think-bounce 1.4s infinite ease-in-out;
 }
+.think-dot:nth-child(2) { animation-delay: 0.2s; }
+.think-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes think-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* ── 工具调用 ── */
 .tool-list {
   display: flex;
   gap: 7px;
@@ -634,25 +992,64 @@ onMounted(() => init().catch(() => {}))
 }
 .tool-chip {
   display: flex;
-  align-items: center;
-  gap: 5px;
+  flex-direction: column;
+  gap: 4px;
   font-size: 10px;
-  padding: 5px 8px;
-  border-radius: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  max-width: 280px;
 }
-.tool-chip.running {
-  background: #eef4ef;
-  color: var(--green);
+.tool-chip.running { background: #eef4ef; color: var(--green); }
+.tool-chip.success { background: #edf4ef; color: var(--green); }
+.tool-chip.failed, .tool-chip.error { background: #f9eceb; color: var(--red); }
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
-.tool-chip.success {
-  background: #edf4ef;
-  color: var(--green);
+.tool-name {
+  font-weight: 600;
 }
-.tool-chip.failed,
-.tool-chip.error {
-  background: #f9eceb;
-  color: var(--red);
+.tool-summary {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
+.summary-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.summary-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.summary-key {
+  color: inherit;
+  opacity: 0.7;
+}
+.summary-value {
+  font-weight: 600;
+}
+.nested-item {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 8px;
+}
+.nested-key {
+  color: inherit;
+  opacity: 0.6;
+}
+.nested-value {
+  font-weight: 500;
+}
+
+/* ── 引用来源 ── */
 .citations {
   margin-top: 12px;
   border-top: 1px solid var(--line);
@@ -672,15 +1069,39 @@ onMounted(() => init().catch(() => {}))
   margin-top: 8px;
   padding: 10px;
 }
-.citations strong {
-  font-size: 11px;
+.citations strong { font-size: 11px; }
+.citations p { font-size: 11px; color: var(--muted); line-height: 1.5; margin: 5px 0 0; }
+
+/* ── 操作按钮 ── */
+.message-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
-.citations p {
-  font-size: 11px;
+.message:hover .message-actions {
+  opacity: 1;
+}
+.action-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 4px;
   color: var(--muted);
-  line-height: 1.5;
-  margin: 5px 0 0;
+  font-size: 14px;
+  transition: all 0.2s;
 }
+.action-btn:hover {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-light);
+}
+
+/* ── 输入框 ── */
 .composer {
   border-top: 1px solid var(--line);
   padding: 14px max(20px, 8%);
@@ -700,22 +1121,157 @@ onMounted(() => init().catch(() => {}))
   place-items: center;
   font-size: 18px;
 }
-.send-button.stop {
-  background: var(--red);
+.send-button.stop { background: var(--red); }
+.send-button:disabled { opacity: 0.45; }
+
+/* ── 错误状态 ── */
+.chat-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  text-align: center;
+  gap: 12px;
 }
-.send-button:disabled {
-  opacity: 0.45;
+.chat-error-state .error-title { font-size: 15px; font-weight: 600; margin: 0; }
+.chat-error-state .error-desc { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* ── 骨架屏消息 ── */
+.skeleton-messages { padding: 20px 8%; }
+.skeleton-msg {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
 }
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
+.sk-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #e8ecea 25%, #f0f3f1 50%, #e8ecea 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+.sk-body { display: flex; flex-direction: column; gap: 8px; }
+.sk-line {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e8ecea 25%, #f0f3f1 50%, #e8ecea 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
 
+/* ── 移动端遮罩 ── */
+.mobile-overlay {
+  display: none;
+}
+
+/* ── Markdown 渲染样式 ── */
+.markdown-body :deep(p) { margin: 0 0 8px; }
+.markdown-body :deep(p:last-child) { margin-bottom: 0; }
+.markdown-body :deep(strong) { font-weight: 700; }
+.markdown-body :deep(em) { font-style: italic; }
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  margin: 16px 0 8px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.markdown-body :deep(h1) { font-size: 18px; }
+.markdown-body :deep(h2) { font-size: 16px; }
+.markdown-body :deep(h3) { font-size: 15px; }
+.markdown-body :deep(h4) { font-size: 14px; }
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+.markdown-body :deep(li) { margin: 4px 0; line-height: 1.7; }
+.markdown-body :deep(blockquote) {
+  margin: 8px 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--green);
+  background: var(--green-light);
+  color: var(--ink);
+}
+.markdown-body :deep(blockquote p) { margin: 0; }
+.markdown-body :deep(code) {
+  background: #f0f2f0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+.markdown-body :deep(pre) {
+  background: #1e2b25;
+  color: #dce6df;
+  padding: 14px 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  position: relative;
+}
+.markdown-body :deep(pre code) {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.markdown-body :deep(.copy-code-btn) {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #dce6df;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.markdown-body :deep(.copy-code-btn:hover) {
+  background: rgba(255, 255, 255, 0.2);
+}
+.markdown-body :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  text-align: left;
+}
+.markdown-body :deep(th) {
+  background: #f7f9f7;
+  font-weight: 600;
+}
+.markdown-body :deep(a) {
+  color: var(--green);
+  text-decoration: underline;
+}
+.markdown-body :deep(hr) {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 14px 0;
+}
+.markdown-body :deep(del) {
+  color: var(--muted);
+}
+
+/* ── 移动端 ── */
 @media (max-width: 800px) {
   .chat-workspace {
     grid-template-columns: 1fr;
-    height: calc(100vh - 116px);
+    height: calc(100dvh - 116px);
   }
   .session-pane {
     position: absolute;
@@ -723,13 +1279,20 @@ onMounted(() => init().catch(() => {}))
     top: 0;
     bottom: 0;
     width: 230px;
-    z-index: 10;
+    z-index: 20;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
   }
   .session-pane.show {
     transform: translateX(0);
+  }
+  .mobile-overlay {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 15;
   }
   .session-toggle {
     display: grid;
@@ -742,6 +1305,9 @@ onMounted(() => init().catch(() => {}))
   }
   .chat-header {
     padding: 0 14px;
+  }
+  .message-actions {
+    opacity: 1;
   }
 }
 </style>
