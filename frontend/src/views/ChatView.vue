@@ -4,7 +4,7 @@ import api, { unwrap } from '@/api'
 import type { Orchard, PageData } from '@/types'
 import {
   Plus, Delete, Promotion, VideoPause, Document,
-  Loading, Check, Close, Expand, CopyDocument, RefreshRight
+  Loading, Check, Close, Expand, CopyDocument, RefreshRight, CaretBottom
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
@@ -190,6 +190,18 @@ function normalizeRole(role: string | undefined, index: number, total: number): 
   }
   // role 缺失时按奇偶推断：偶数索引为 user，奇数为 assistant
   return index % 2 === 0 ? 'user' : 'assistant'
+}
+
+const toolLabelMap: Record<string, string> = {
+  calculateFertilizer: '肥料用量计算',
+  queryOrchardWeather: '果园天气查询',
+  getOrchardContext: '果园信息查询',
+  queryKnowledge: '知识库检索',
+  queryPests: '病虫害查询',
+  calculateYield: '产量估算'
+}
+function toolLabel(name: string): string {
+  return toolLabelMap[name] || name
 }
 
 async function remove(id: string) {
@@ -573,42 +585,24 @@ onBeforeUnmount(() => {
                   :key="t.name + '-' + ti"
                   :class="['tool-chip', (t.status || '').toLowerCase()]"
                 >
-                  <div class="tool-header">
+                  <div class="tool-header" @click="t._expanded = !t._expanded">
                     <el-icon v-if="t.status === 'RUNNING'" class="is-loading"><Loading /></el-icon>
                     <el-icon v-else-if="t.status === 'SUCCESS'"><Check /></el-icon>
                     <el-icon v-else><Close /></el-icon>
-                    <span class="tool-name">{{ t.name }}</span>
+                    <span class="tool-name">{{ toolLabel(t.name) }}</span>
+                    <span class="tool-status-text">
+                      {{ t.status === 'RUNNING' ? '调用中' : t.status === 'SUCCESS' ? '已完成' : '失败' }}
+                    </span>
+                    <el-icon class="tool-expand-icon" :class="{ expanded: t._expanded }">
+                      <CaretBottom />
+                    </el-icon>
                   </div>
-                  <div v-if="typeof t.summary === 'object' && t.summary" class="tool-summary">
-                    <template v-for="(val, key) in t.summary" :key="key">
-                      <div v-if="Array.isArray(val)" class="summary-group">
-                        <span class="summary-key">{{ key }}:</span>
-                        <div v-for="(item, idx) in val" :key="idx" class="summary-item">
-                          <span v-if="typeof item === 'object'">
-                            <span v-for="(v, k) in item" :key="k" class="nested-item">
-                              <span class="nested-key">{{ k }}:</span>
-                              <span class="nested-value">{{ v }}</span>
-                            </span>
-                          </span>
-                          <span v-else>{{ item }}</span>
-                        </div>
-                      </div>
-                      <div v-else-if="typeof val === 'object'" class="summary-group">
-                        <span class="summary-key">{{ key }}:</span>
-                        <div class="summary-item">
-                          <span v-for="(v, k) in val" :key="k" class="nested-item">
-                            <span class="nested-key">{{ k }}:</span>
-                            <span class="nested-value">{{ v }}</span>
-                          </span>
-                        </div>
-                      </div>
-                      <div v-else class="summary-item">
-                        <span class="summary-key">{{ key }}:</span>
-                        <span class="summary-value">{{ val }}</span>
-                      </div>
-                    </template>
+                  <div v-if="t._expanded && t.summary" class="tool-summary">
+                    <div v-if="typeof t.summary === 'object'" class="summary-json">
+                      <pre>{{ JSON.stringify(t.summary, null, 2) }}</pre>
+                    </div>
+                    <span v-else>{{ t.summary }}</span>
                   </div>
-                  <span v-else-if="t.summary">{{ t.summary }}</span>
                 </div>
               </div>
 
@@ -993,60 +987,65 @@ onBeforeUnmount(() => {
 .tool-chip {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  max-width: 280px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  overflow: hidden;
+  min-width: 160px;
 }
-.tool-chip.running { background: #eef4ef; color: var(--green); }
-.tool-chip.success { background: #edf4ef; color: var(--green); }
-.tool-chip.failed, .tool-chip.error { background: #f9eceb; color: var(--red); }
+.tool-chip.running { border-color: #cfe8d5; color: var(--green); }
+.tool-chip.success { border-color: #cfe8d5; color: var(--green); }
+.tool-chip.failed, .tool-chip.error { border-color: #f3c9c6; color: var(--red); }
 .tool-header {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #f7f9f7;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
 }
+.tool-chip.running .tool-header,
+.tool-chip.success .tool-header { background: #eef4ef; }
+.tool-chip.failed .tool-header,
+.tool-chip.error .tool-header { background: #f9eceb; }
 .tool-name {
   font-weight: 600;
+  flex: 1;
 }
-.tool-summary {
-  margin-top: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+.tool-status-text {
+  font-size: 11px;
+  opacity: 0.8;
 }
-.summary-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.summary-item {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-.summary-key {
-  color: inherit;
-  opacity: 0.7;
-}
-.summary-value {
-  font-weight: 600;
-}
-.nested-item {
-  display: inline-flex;
-  gap: 2px;
-  margin-right: 8px;
-}
-.nested-key {
-  color: inherit;
+.tool-expand-icon {
+  font-size: 11px;
+  transition: transform 0.2s;
   opacity: 0.6;
 }
-.nested-value {
-  font-weight: 500;
+.tool-expand-icon.expanded {
+  transform: rotate(180deg);
+}
+.tool-summary {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.summary-json pre {
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--ink);
+  background: #f7f9f7;
+  padding: 8px;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 /* ── 引用来源 ── */
