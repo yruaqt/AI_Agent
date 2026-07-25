@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -21,6 +22,14 @@ public class GlobalExceptionHandler {
         Map<String, String> fields = new LinkedHashMap<>();
         ex.getBindingResult().getFieldErrors().forEach(error -> fields.putIfAbsent(error.getField(), error.getDefaultMessage()));
         return ResponseEntity.badRequest().body(ApiResponse.failure(ErrorCode.BAD_REQUEST.code, ErrorCode.BAD_REQUEST.message, fields));
+    }
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ApiResponse<Map<String, String>>> typeMismatch(MethodArgumentTypeMismatchException ex) {
+        Map<String, String> details = new LinkedHashMap<>();
+        details.put("field", ex.getName());
+        details.put("message", "参数类型不正确");
+        return ResponseEntity.badRequest().body(
+                ApiResponse.failure(ErrorCode.BAD_REQUEST.code, ErrorCode.BAD_REQUEST.message, details));
     }
     @ExceptionHandler({ConstraintViolationException.class, IllegalArgumentException.class})
     ResponseEntity<ApiResponse<Void>> invalid(Exception ex) {
