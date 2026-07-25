@@ -3,7 +3,7 @@ import { nextTick, onMounted, ref } from 'vue'
 import api, { unwrap } from '@/api'
 import type { Orchard, PageData } from '@/types'
 import {
-  Plus, Delete, Promotion, VideoPause, Tools, Document,
+  Plus, Delete, Promotion, VideoPause, Document,
   Loading, Check, Close, Expand
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginView from '@/views/LoginView.vue'
 import ForbiddenView from '@/views/ForbiddenView.vue'
+import NotFoundView from '@/views/NotFoundView.vue'
 import AppShell from '@/components/AppShell.vue'
 
 const router = createRouter({
@@ -22,7 +23,8 @@ const router = createRouter({
         { path: 'knowledge', name: 'knowledge', component: () => import('@/views/KnowledgeView.vue'), meta: { admin: true } },
         { path: 'users', name: 'users', component: () => import('@/views/UsersView.vue'), meta: { admin: true } }
       ]
-    }
+    },
+    { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView }
   ]
 })
 

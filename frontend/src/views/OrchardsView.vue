@@ -218,12 +218,17 @@ async function toggleStatus(orchard: Orchard) {
         type: 'warning'
       }
     )
+  } catch {
+    // 用户取消确认，静默处理
+    return
+  }
 
+  try {
     await api.patch(`/orchards/${orchard.id}/status`, { status: newStatus })
     ElMessage.success(`${action}成功`)
     loadOrchards()
   } catch {
-    ElMessage.info('已取消操作')
+    // api 拦截器已处理错误提示
   }
 }
 

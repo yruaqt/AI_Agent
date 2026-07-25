@@ -175,8 +175,15 @@ api.interceptors.response.use(
 )
 
 // 解包 API 响应数据
-export const unwrap = <T>(result: { data: ApiResult<T> }): T => {
-  return result.data.data
+// 兼容统一响应格式 { code, message, data } 和直接返回的数据
+export const unwrap = <T>(result: { data: any }): T => {
+  const body = result.data
+  // 统一响应格式：有 code 和 data 字段时取 data
+  if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
+    return body.data as T
+  }
+  // 后端直接返回数据对象（未包裹在统一响应格式中）
+  return body as T
 }
 
 export default api
