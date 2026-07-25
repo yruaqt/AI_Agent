@@ -57,7 +57,7 @@ public class KnowledgeDocumentController extends ControllerSupport {
 
     @GetMapping
     @Operation(summary = "查询知识文档列表（管理员）")
-    public PageResponse<KnowledgeDocumentView> list(
+    public ApiResponse<PageResponse<KnowledgeDocumentView>> list(
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) int pageSize,
             @RequestParam(required = false) String status,
@@ -65,7 +65,8 @@ public class KnowledgeDocumentController extends ControllerSupport {
         DocumentStatus statusValue = status == null || status.isBlank()
                 ? null : DocumentStatus.valueOf(status.toUpperCase());
         PageRequest pageable = pageRequest(page - 1, pageSize, Sort.Direction.DESC, "createdAt");
-        return PageResponse.from(service.list(statusValue, keyword, pageable).map(KnowledgeDocumentView::from));
+        return ApiResponse.ok(PageResponse.from(
+                service.list(statusValue, keyword, pageable).map(KnowledgeDocumentView::from)));
     }
 
     @GetMapping("/{documentId}")

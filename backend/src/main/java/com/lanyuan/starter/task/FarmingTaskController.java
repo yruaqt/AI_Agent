@@ -53,7 +53,7 @@ public class FarmingTaskController extends ControllerSupport {
 
     @GetMapping("/tasks")
     @Operation(summary = "查询农事任务列表")
-    public PageResponse<FarmingTaskView> list(
+    public ApiResponse<PageResponse<FarmingTaskView>> list(
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) int pageSize,
             @RequestParam(required = false) Long orchardId,
@@ -62,7 +62,8 @@ public class FarmingTaskController extends ControllerSupport {
         TaskStatus statusValue = status == null || status.isBlank()
                 ? null : TaskStatus.valueOf(status.toUpperCase());
         PageRequest pageable = pageRequest(page - 1, pageSize, Sort.Direction.DESC, "createdAt");
-        return PageResponse.from(taskService.list(orchardId, date, statusValue, pageable).map(taskService::view));
+        return ApiResponse.ok(PageResponse.from(
+                taskService.list(orchardId, date, statusValue, pageable).map(taskService::view)));
     }
 
     @GetMapping("/tasks/{taskId}")

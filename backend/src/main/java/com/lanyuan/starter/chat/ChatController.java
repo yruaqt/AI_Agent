@@ -55,23 +55,25 @@ public class ChatController extends ControllerSupport {
 
     @GetMapping("/sessions")
     @Operation(summary = "查询当前用户会话列表")
-    public PageResponse<ChatSessionView> sessions(
+    public ApiResponse<PageResponse<ChatSessionView>> sessions(
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) int pageSize,
             @RequestParam(required = false) Long orchardId) {
         PageRequest pageable = pageRequest(page - 1, pageSize, Sort.Direction.DESC, "updatedAt");
-        return PageResponse.from(sessionService.list(orchardId, pageable).map(ChatSessionView::from));
+        return ApiResponse.ok(PageResponse.from(
+                sessionService.list(orchardId, pageable).map(ChatSessionView::from)));
     }
 
     @GetMapping("/sessions/{sessionId}/messages")
     @Operation(summary = "查询会话历史消息")
-    public PageResponse<ChatMessageView> messages(
+    public ApiResponse<PageResponse<ChatMessageView>> messages(
             @PathVariable @Min(1) Long sessionId,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "50") @Min(1) int pageSize) {
         sessionService.requireAccessible(sessionId);
         PageRequest pageable = pageRequest(page - 1, pageSize, Sort.Direction.ASC, "createdAt");
-        return PageResponse.from(messageService.list(sessionId, pageable).map(ChatMessageView::from));
+        return ApiResponse.ok(PageResponse.from(
+                messageService.list(sessionId, pageable).map(ChatMessageView::from)));
     }
 
     @PostMapping("/sessions/{sessionId}/messages")
