@@ -9,4 +9,11 @@ spring:
       enabled: false
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    locations: classpath:db/migration,classpath:db/migration-postgresql
+app:
+  # 普通 PostgreSQL 部署默认不写入演示账号；Docker 演示环境会显式开启。
+  demo-data:
+    enabled: ${DEMO_DATA_ENABLED:false}
+    password: ${DEMO_PASSWORD:123456}
 
