@@ -15,5 +15,6 @@ spring:
 app:
   version: test
   cors-origins: http://localhost:5173
-  jwt-secret: test-secret-key-for-unit-testing-only-must-be-long-enough-256-bits-minimum
-  jwt-expiration-seconds: 3600
+  jwt-secret: test-secret-key-must-be-at-least-32-bytes-long-for-hs256
+  jwt-expiration-seconds: 7200
+
