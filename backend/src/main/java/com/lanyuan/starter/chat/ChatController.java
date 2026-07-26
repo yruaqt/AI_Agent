@@ -10,8 +10,10 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -91,7 +93,14 @@ public class ChatController extends ControllerSupport {
     @Operation(summary = "发送消息（SSE 流式接口）")
     public SseEmitter stream(
             @PathVariable @Min(1) Long sessionId,
-            @Valid @RequestBody SendMessageRequest request) {
+            @Valid @RequestBody SendMessageRequest request,
+            HttpServletResponse response) {
+        // SSE 必须禁用浏览器、网关和 Nginx 的响应缓冲，否则增量事件可能在连接结束时才一次性到达。
+        response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
+        response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
+        response.setHeader("X-Accel-Buffering", "no");
         return applicationService.streamMessage(sessionId, request.message());
     }
 

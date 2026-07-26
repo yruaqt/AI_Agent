@@ -10,6 +10,8 @@ import dev.langchain4j.rag.content.ContentMetadata;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.BeforeToolExecution;
 import dev.langchain4j.service.tool.ToolExecution;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -32,6 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Service
 public class ChatApplicationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatApplicationService.class);
 
     private final ChatSessionService sessionService;
     private final ChatMessageService messageService;
@@ -117,22 +121,16 @@ public class ChatApplicationService {
         List<Object> citations = Collections.synchronizedList(new ArrayList<>());
         AtomicBoolean finished = new AtomicBoolean();
 
-        activeGenerations.put(sessionId, () -> {
-            if (!finished.compareAndSet(false, true)) return false;
-            long duration = elapsed(prepared.startedNanos());
-            messageService.stop(prepared.assistantMessageId(), answer.toString(), duration);
-            memoryProvider.clear(sessionId);
-            AgentInvocationContext.end(sessionId);
-            activeGenerations.remove(sessionId);
-            send(emitter, "done", Map.of(
-                    "finishReason", "STOPPED",
-                    "durationMs", duration
-            ));
-            emitter.complete();
-            return true;
-        });
+        activeGenerations.put(sessionId, () -> stopStream(
+                prepared, answer, finished, emitter, true
+        ));
 
-        send(emitter, "start", Map.of("messageId", String.valueOf(prepared.assistantMessageId())));
+        if (!send(emitter, "start", Map.of(
+                "messageId", String.valueOf(prepared.assistantMessageId())
+        ))) {
+            stopStream(prepared, answer, finished, emitter, false);
+            return emitter;
+        }
 
         emitter.onTimeout(() -> {
             TimeoutException timeout = new TimeoutException("SSE 模型响应超时");
@@ -141,20 +139,39 @@ public class ChatApplicationService {
                 emitter.complete();
             }
         });
-        emitter.onError(error -> failOnce(prepared, answer.toString(), error, finished));
+        // 这里处理的是 SSE 传输断开，不是模型调用失败；保留已生成内容并释放会话占用。
+        emitter.onError(error -> stopStream(prepared, answer, finished, emitter, false));
+        emitter.onCompletion(() -> stopStream(prepared, answer, finished, emitter, false));
 
         try {
             TokenStream stream = runtime.agent().chat(sessionId, message)
-                    .beforeToolExecution(value -> sendToolCall(emitter, value))
-                    .onToolExecuted(value -> sendToolResult(emitter, value))
+                    .beforeToolExecution(value -> {
+                        if (!finished.get() && !sendToolCall(emitter, value)) {
+                            stopStream(prepared, answer, finished, emitter, false);
+                        }
+                    })
+                    .onToolExecuted(value -> {
+                        if (!finished.get() && !sendToolResult(emitter, value)) {
+                            stopStream(prepared, answer, finished, emitter, false);
+                        }
+                    })
                     .onRetrieved(values -> {
+                        if (finished.get()) return;
                         List<Object> retrieved = toCitations(values);
                         citations.addAll(retrieved);
-                        retrieved.forEach(value -> send(emitter, "citation", value));
+                        for (Object value : retrieved) {
+                            if (!send(emitter, "citation", value)) {
+                                stopStream(prepared, answer, finished, emitter, false);
+                                break;
+                            }
+                        }
                     })
                     .onPartialResponse(delta -> {
+                        if (finished.get()) return;
                         answer.append(delta);
-                        send(emitter, "delta", Map.of("content", delta));
+                        if (!send(emitter, "delta", Map.of("content", delta))) {
+                            stopStream(prepared, answer, finished, emitter, false);
+                        }
                     })
                     .onCompleteResponse(response -> {
                         if (!finished.compareAndSet(false, true)) return;
@@ -269,6 +286,25 @@ public class ChatApplicationService {
         return true;
     }
 
+    private boolean stopStream(PreparedGeneration prepared, StringBuffer answer,
+                               AtomicBoolean finished, SseEmitter emitter,
+                               boolean notifyClient) {
+        if (!finished.compareAndSet(false, true)) return false;
+        long duration = elapsed(prepared.startedNanos());
+        messageService.stop(prepared.assistantMessageId(), answer.toString(), duration);
+        memoryProvider.clear(prepared.sessionId());
+        AgentInvocationContext.end(prepared.sessionId());
+        activeGenerations.remove(prepared.sessionId());
+        if (notifyClient) {
+            send(emitter, "done", Map.of(
+                    "finishReason", "STOPPED",
+                    "durationMs", duration
+            ));
+        }
+        emitter.complete();
+        return true;
+    }
+
     private static ChatResponseData.ToolCallSummary toolSummary(ToolExecution value) {
         return new ChatResponseData.ToolCallSummary(
                 value.request().name(), value.hasFailed() ? "FAILED" : "SUCCESS", limit(value.result(), 200)
@@ -295,30 +331,33 @@ public class ChatApplicationService {
         if (value != null) target.put(key, value);
     }
 
-    private static void sendToolCall(SseEmitter emitter, BeforeToolExecution value) {
-        send(emitter, "tool_call", Map.of(
+    private static boolean sendToolCall(SseEmitter emitter, BeforeToolExecution value) {
+        return send(emitter, "tool_call", Map.of(
                 "name", value.request().name(),
                 "status", "RUNNING"
         ));
     }
 
-    private static void sendToolResult(SseEmitter emitter, ToolExecution value) {
+    private static boolean sendToolResult(SseEmitter emitter, ToolExecution value) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("name", value.request().name());
         data.put("status", value.hasFailed() ? "FAILED" : "SUCCESS");
         data.put("summary", limit(value.result(), 200));
-        send(emitter, "tool_result", data);
+        return send(emitter, "tool_result", data);
     }
 
     private static void sendError(SseEmitter emitter, int code, String message) {
         send(emitter, "error", Map.of("code", code, "message", message));
     }
 
-    private static synchronized void send(SseEmitter emitter, String event, Object data) {
+    private static boolean send(SseEmitter emitter, String event, Object data) {
         try {
             emitter.send(SseEmitter.event().name(event).data(data));
-        } catch (IOException | IllegalStateException ignored) {
-            // 客户端主动断开时不再向响应流写数据。
+            return true;
+        } catch (IOException | IllegalStateException ex) {
+            // SseEmitter 自身保证单连接写入安全，不使用全局锁阻塞其他会话。
+            log.debug("SSE 事件发送失败，event={}", event, ex);
+            return false;
         }
     }
 
