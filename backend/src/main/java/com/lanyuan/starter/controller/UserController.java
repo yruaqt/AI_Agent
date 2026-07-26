@@ -12,6 +12,7 @@ import com.lanyuan.starter.repository.UserRepository;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -39,12 +40,17 @@ public class UserController extends ControllerSupport {
     public ApiResponse<PageResponse<Map<String, Object>>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
-            @RequestParam(defaultValue = "") String keyword) {
+            @RequestParam(defaultValue = "") String keyword,
+            @RequestParam(required = false) String status) {
 
         PageRequest pageable = pageRequest(page - 1, pageSize, Sort.Direction.DESC, "createdAt");
+        EnabledStatus statusEnum = parseStatus(status);
+
         var result = keyword.isBlank()
-                ? userRepository.findAll(pageable)
-                : userRepository.findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(keyword, keyword, pageable);
+                ? (statusEnum == null ? userRepository.findAll(pageable) : userRepository.findByStatus(statusEnum, pageable))
+                : (statusEnum == null
+                    ? userRepository.findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(keyword, keyword, pageable)
+                    : userRepository.findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCaseAndStatus(keyword, keyword, statusEnum, pageable));
 
         return ApiResponse.ok(pageResponse(result.map(this::userView)));
     }
@@ -70,10 +76,19 @@ public class UserController extends ControllerSupport {
             @PathVariable Long id,
             @RequestBody Map<String, String> body) {
 
+        String rawStatus = body.get("status");
+        if (rawStatus == null || rawStatus.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "status 不能为空");
+        }
+        EnabledStatus newStatus = parseStatus(rawStatus);
+        if (newStatus == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "status 值不合法，应为 ENABLED 或 DISABLED");
+        }
+
         AppUser user = userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
 
-        user.setStatus(EnabledStatus.valueOf(body.getOrDefault("status", "ENABLED")));
+        user.setStatus(newStatus);
         user = userRepository.save(user);
         return ApiResponse.ok(userView(user));
     }
@@ -92,6 +107,15 @@ public class UserController extends ControllerSupport {
     }
 
     // ===== 私有方法 =====
+    private EnabledStatus parseStatus(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return EnabledStatus.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     private Map<String, Object> userView(AppUser user) {
         return Map.of(
                 "id", user.getId().toString(),
@@ -108,7 +132,7 @@ public class UserController extends ControllerSupport {
             @NotBlank String username,
             @NotBlank @Size(min = 6, message = "密码至少6位") String password,
             @NotBlank String displayName,
-            UserRole role
+            @NotNull(message = "角色不能为空") UserRole role
     ) {}
 
     public record ResetPasswordRequest(
