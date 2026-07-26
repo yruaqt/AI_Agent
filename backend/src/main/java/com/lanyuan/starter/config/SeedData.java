@@ -2,7 +2,8 @@ package com.lanyuan.starter.config;
 
 import com.lanyuan.starter.orchard.*;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import com.lanyuan.starter.entity.AppUser;
 import com.lanyuan.starter.enums.UserRole;
@@ -14,39 +15,35 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * 开发/测试环境初始数据填充（需求文档 §6 典型果园档案）
- * 生产环境不执行
+ * 显式开启 app.demo-data.enabled 后填充演示数据（需求文档 §6 典型果园档案）。
+ * 正式环境默认关闭，不会创建或覆盖账号。
  */
 @Component
-@Profile({"dev", "default"})
+@ConditionalOnProperty(prefix = "app.demo-data", name = "enabled", havingValue = "true")
 public class SeedData implements CommandLineRunner {
 
     private final OrchardRepository orchardRepository;
     private final PhenologyRepository phenologyRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final String demoPassword;
 
     public SeedData(OrchardRepository orchardRepository, PhenologyRepository phenologyRepository,
-                    UserRepository userRepository, PasswordEncoder passwordEncoder) {
+                    UserRepository userRepository, PasswordEncoder passwordEncoder,
+                    @Value("${app.demo-data.password:123456}") String demoPassword) {
         this.orchardRepository = orchardRepository;
         this.phenologyRepository = phenologyRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.demoPassword = demoPassword;
     }
-
-
-
     @Override
     public void run(String... args) {
-        if (userRepository.count() == 0) {
-            AppUser admin = new AppUser(
-                    "admin",
-                    passwordEncoder.encode("123456"),
-                    "系统管理员",
-                    UserRole.ADMIN
-            );
-            userRepository.save(admin);
+        if (demoPassword == null || demoPassword.isBlank()) {
+            throw new IllegalStateException("开启演示数据时 DEMO_PASSWORD 不能为空");
         }
+        createUserIfMissing("admin", "系统管理员", UserRole.ADMIN);
+        createUserIfMissing("student", "演示学生", UserRole.STUDENT);
 
         if (orchardRepository.count() > 0) return;
 
@@ -78,5 +75,17 @@ public class SeedData implements CommandLineRunner {
         record.setEffectiveDate(LocalDate.of(2026, 6, 20));
         record.setRemark("教师现场确认进入幼果膨大期");
         phenologyRepository.save(record);
+    }
+
+    /** 按用户名幂等初始化，已有业务账号不会被覆盖或重置密码。 */
+    private void createUserIfMissing(String username, String displayName, UserRole role) {
+        if (userRepository.findByUsername(username).isPresent()) return;
+        AppUser user = new AppUser(
+                username,
+                passwordEncoder.encode(demoPassword),
+                displayName,
+                role
+        );
+        userRepository.save(user);
     }
 }

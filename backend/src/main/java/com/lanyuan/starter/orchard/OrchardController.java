@@ -38,7 +38,7 @@ public class OrchardController extends ControllerSupport {
 
     @GetMapping
     @Operation(summary = "获取果园列表")
-    public PageResponse<Orchard> list(
+    public ApiResponse<PageResponse<Orchard>> list(
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) int pageSize,
             @RequestParam(required = false) String keyword,
@@ -46,7 +46,7 @@ public class OrchardController extends ControllerSupport {
         PageRequest pr = pageRequest(page - 1, pageSize, "id");
         EnabledStatus statusEnum = status != null ? EnabledStatus.valueOf(status.toUpperCase()) : null;
         Page<Orchard> result = orchardService.list(keyword, statusEnum, pr);
-        return pageResponse(result);
+        return ApiResponse.ok(pageResponse(result));
     }
 
     @GetMapping("/{orchardId}")
@@ -125,13 +125,13 @@ public class OrchardController extends ControllerSupport {
 
     @GetMapping("/{orchardId}/phenologies")
     @Operation(summary = "物候期历史")
-    public PageResponse<PhenologyRecord> phenologyHistory(
+    public ApiResponse<PageResponse<PhenologyRecord>> phenologyHistory(
             @PathVariable @Min(1) Long orchardId,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) int pageSize) {
         PageRequest pr = pageRequest(page - 1, pageSize, "effectiveDate");
         Page<PhenologyRecord> result = orchardService.phenologyHistory(orchardId, pr);
-        return pageResponse(result);
+        return ApiResponse.ok(pageResponse(result));
     }
 
     @GetMapping("/phenology-stages")

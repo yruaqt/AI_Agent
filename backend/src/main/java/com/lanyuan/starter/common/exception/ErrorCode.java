@@ -3,7 +3,7 @@ package com.lanyuan.starter.common.exception;
 import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
-    BAD_REQUEST(40001, HttpStatus.BAD_REQUEST, "请求参数不正确"),
+    BAD_REQUEST(40001, HttpStatus.BAD_REQUEST, "请求参数错误"),
     UNAUTHORIZED(40101, HttpStatus.UNAUTHORIZED, "未登录或令牌失效"),
     FORBIDDEN(40301, HttpStatus.FORBIDDEN, "无操作权限"),
     NOT_FOUND(40401, HttpStatus.NOT_FOUND, "资源不存在"),

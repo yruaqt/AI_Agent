@@ -48,7 +48,7 @@ public class TrainingRecordController extends ControllerSupport {
 
     @GetMapping
     @Operation(summary = "实训记录列表")
-    public PageResponse<TrainingRecord> list(
+    public ApiResponse<PageResponse<TrainingRecord>> list(
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) int pageSize,
             @RequestParam(required = false) Long orchardId,
@@ -59,7 +59,7 @@ public class TrainingRecordController extends ControllerSupport {
         Long effectiveStudentId = currentUser.isAdmin() ? studentId : currentUser.id();
         PageRequest pr = PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "recordDate"));
         Page<TrainingRecord> result = service.list(orchardId, effectiveStudentId, startDate, endDate, pr);
-        return pageResponse(result);
+        return ApiResponse.ok(pageResponse(result));
     }
 
     @GetMapping("/{recordId}")
