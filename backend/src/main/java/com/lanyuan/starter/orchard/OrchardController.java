@@ -3,6 +3,9 @@ package com.lanyuan.starter.orchard;
 import com.lanyuan.starter.common.api.ApiResponse;
 import com.lanyuan.starter.common.api.PageResponse;
 import com.lanyuan.starter.common.web.ControllerSupport;
+import com.lanyuan.starter.common.web.CurrentUser;
+import com.lanyuan.starter.common.exception.BusinessException;
+import com.lanyuan.starter.common.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -26,9 +29,11 @@ import java.time.LocalDate;
 public class OrchardController extends ControllerSupport {
 
     private final OrchardService orchardService;
+    private final CurrentUser currentUser;
 
-    public OrchardController(OrchardService orchardService) {
+    public OrchardController(OrchardService orchardService, CurrentUser currentUser) {
         this.orchardService = orchardService;
+        this.currentUser = currentUser;
     }
 
     @GetMapping
@@ -38,7 +43,7 @@ public class OrchardController extends ControllerSupport {
             @RequestParam(defaultValue = "20") @Min(1) int pageSize,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String status) {
-        PageRequest pr = pageRequest(page - 1, pageSize, "id"); // 接口文档 page 从1开始
+        PageRequest pr = pageRequest(page - 1, pageSize, "id");
         EnabledStatus statusEnum = status != null ? EnabledStatus.valueOf(status.toUpperCase()) : null;
         Page<Orchard> result = orchardService.list(keyword, statusEnum, pr);
         return ApiResponse.ok(pageResponse(result));
@@ -54,6 +59,10 @@ public class OrchardController extends ControllerSupport {
     @Operation(summary = "新增果园（管理员）")
     public ApiResponse<Orchard> create(@Valid @RequestBody CreateOrchardRequest req) {
         requireAdmin();
+        // 校验：果园面积必须大于 0
+        if (req.areaMu != null && req.areaMu.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "果园面积必须大于 0");
+        }
         Orchard orchard = new Orchard();
         orchard.setName(req.name);
         orchard.setAreaMu(req.areaMu);
@@ -77,6 +86,10 @@ public class OrchardController extends ControllerSupport {
     @Operation(summary = "修改果园（管理员）")
     public ApiResponse<Orchard> update(@PathVariable @Min(1) Long orchardId, @Valid @RequestBody UpdateOrchardRequest req) {
         requireAdmin();
+        // 校验：果园面积必须大于 0
+        if (req.areaMu != null && req.areaMu.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "果园面积必须大于 0");
+        }
         Orchard updated = new Orchard();
         updated.setName(req.name);
         updated.setAreaMu(req.areaMu);
@@ -127,28 +140,18 @@ public class OrchardController extends ControllerSupport {
         return ApiResponse.ok(PhenologyStage.values());
     }
 
-    // ========== 权限占位方法（认证模块完成后替换为 SecurityContext 实现） ==========
-
-    private Long currentUserId() {
-        // TODO: 替换为 SecurityContextHolder.getContext().getAuthentication() 获取当前用户ID
-        return 1L;
-    }
-
-    private String currentUserRole() {
-        // TODO: 替换为 SecurityContextHolder.getContext().getAuthentication() 获取当前角色
-        return "ADMIN";
-    }
+    // ========== 权限校验 ==========
 
     private void requireAdmin() {
-        if (!"ADMIN".equalsIgnoreCase(currentUserRole())) {
-            throw new IllegalStateException("无权限：仅管理员可以执行此操作");
+        if (!currentUser.isAdmin()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限：仅管理员可以执行此操作");
         }
     }
 
     // --- Request DTOs ---
     public static class CreateOrchardRequest {
         @NotBlank @Size(max = 64) public String name;
-        @NotNull @DecimalMin("0") public BigDecimal areaMu;
+        @NotNull @DecimalMin(value = "0.01", message = "果园面积必须大于 0") public BigDecimal areaMu;
         @NotNull @Min(1) public Integer treeCount;
         public Integer treeAgeYears;
         @Size(max = 64) public String variety;
@@ -166,7 +169,7 @@ public class OrchardController extends ControllerSupport {
 
     public static class UpdateOrchardRequest {
         @NotBlank @Size(max = 64) public String name;
-        @NotNull @DecimalMin("0") public BigDecimal areaMu;
+        @NotNull @DecimalMin(value = "0.01", message = "果园面积必须大于 0") public BigDecimal areaMu;
         @NotNull @Min(1) public Integer treeCount;
         public Integer treeAgeYears;
         @Size(max = 64) public String variety;
