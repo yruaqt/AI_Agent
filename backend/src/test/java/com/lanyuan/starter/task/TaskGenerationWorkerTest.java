@@ -45,13 +45,16 @@ class TaskGenerationWorkerTest {
         when(jobs.claim(eq(7L), any())).thenReturn(1);
         when(jobs.findById(7L)).thenReturn(Optional.of(job));
         when(service.generate(10L, LocalDate.of(2026, 7, 30), null, true, 20L, 7788L))
-                .thenThrow(new TaskGenerationException("模型调用超时"));
+                .thenThrow(new TaskGenerationException(
+                        "阿里百炼任务生成失败",
+                        new RuntimeException("模型调用超时",
+                                new java.net.http.HttpTimeoutException("request timed out"))));
 
         new TaskGenerationWorker(jobs, service, new ObjectMapper())
                 .generate(new TaskGenerationRequested(7L));
 
         assertEquals(TaskGenerationJobStatus.FAILED, job.getStatus());
-        assertEquals("模型调用超时", job.getErrorMessage());
+        assertEquals("request timed out", job.getErrorMessage());
         assertNotNull(job.getCompletedAt());
         verify(jobs).save(job);
     }
