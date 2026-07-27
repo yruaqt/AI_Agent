@@ -79,7 +79,7 @@ public class TaskGenerationService {
                                  CurrentUser currentUser,
                                  ObjectMapper objectMapper) {
         this(orchardService, weatherService, ragSearchService, modelFactory, taskRepository,
-                currentUser, objectMapper, new TaskGenerationProperties(25, 0), Runnable::run);
+                currentUser, objectMapper, new TaskGenerationProperties(120, 0), Runnable::run);
     }
 
     /** 保留给旧调用方和单元测试的同步入口；HTTP 接口不再调用此方法。 */
@@ -107,14 +107,14 @@ public class TaskGenerationService {
                 () -> weatherService.queryOrchardWeather(orchardId, 3), lookupExecutor);
         CompletableFuture<List<RagSearchResult>> citationFuture = CompletableFuture.supplyAsync(
                 () -> ragSearchService.search(new RagSearchRequest(
-                        buildQuery(orchard, focus), 5, 0.45,
+                        buildQuery(orchard, focus), 3, 0.45,
                         new RagSearchRequest.Filters(
                                 orchard.getCurrentPhenology() == null ? null : orchard.getCurrentPhenology().name(),
                                 orchard.getProvince(), null
                         )
                 )), lookupExecutor);
         List<FarmingTask> unfinishedTasks = taskRepository
-                .findTop20ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
+                .findTop5ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
                         orchardId, date,
                         EnumSet.of(TaskStatus.DRAFT, TaskStatus.CONFIRMED, TaskStatus.TODO, TaskStatus.DOING)
                 );
@@ -236,7 +236,7 @@ public class TaskGenerationService {
                 {"weatherSummary":"天气摘要","tasks":[{"type":"任务类型","title":"标题","content":"可执行内容","priority":"LOW|MEDIUM|HIGH","suggestedTime":"建议时间","basis":"依据","safetyNotice":"安全提示"}]}
 
                 果园：%s；日期：%s；面积：%s亩；株数：%s；物候期：%s；关注重点：%s。
-                天气数据（provider=%s，dataNote=%s）：%s。
+                天气摘要：%s。
                 知识片段：%s。
                 近期未完成任务：%s。
 
@@ -244,18 +244,51 @@ public class TaskGenerationService {
                 大规模施肥、用药、修剪必须提示教师确认；不得将可能病因写成确定诊断。
                 """.formatted(
                 orchard.getName(), date, orchard.getAreaMu(), orchard.getTreeCount(),
-                orchard.getCurrentPhenology(), nullable(focus), weather.provider(), weather.dataNote(),
-                weather, citations, unfinishedTaskSummary(unfinishedTasks)
+                orchard.getCurrentPhenology(), nullable(focus), weatherSummary(weather),
+                citationSummary(citations), unfinishedTaskSummary(unfinishedTasks)
         );
+    }
+
+    private static String weatherSummary(WeatherResult weather) {
+        if (weather == null) return "暂无可用天气数据";
+        List<String> parts = new ArrayList<>();
+        WeatherResult.CurrentWeather current = weather.current();
+        if (current != null) {
+            parts.add("当前%s，%s℃，%s风%s级".formatted(
+                    nullable(current.weather()), value(current.temperatureC()),
+                    nullable(current.windDirection()), nullable(current.windLevel())));
+        }
+        if (weather.forecast() != null) {
+            weather.forecast().stream().limit(3).forEach(item -> parts.add(
+                    "%s：白天%s/夜间%s，%s~%s℃，风力%s级".formatted(
+                            item.date(), nullable(item.dayWeather()), nullable(item.nightWeather()),
+                            value(item.minTemperatureC()), value(item.maxTemperatureC()),
+                            nullable(item.windLevel()))));
+        }
+        if (!blank(weather.dataNote())) parts.add("数据说明：" + weather.dataNote().trim());
+        return parts.isEmpty() ? "暂无可用天气数据" : String.join("；", parts);
+    }
+
+    private static List<String> citationSummary(List<RagSearchResult> citations) {
+        if (citations == null || citations.isEmpty()) return List.of();
+        return citations.stream().limit(3)
+                .map(value -> "%s：%s".formatted(
+                        nullable(value.documentName()), limit(nullable(value.quote()), 240)))
+                .toList();
     }
 
     private static List<String> unfinishedTaskSummary(List<FarmingTask> tasks) {
         if (tasks == null || tasks.isEmpty()) return List.of();
-        return tasks.stream()
+        return tasks.stream().limit(5)
                 .map(task -> "%s | %s | %s | %s".formatted(
-                        task.getTaskDate(), task.getStatus(), task.getTitle(), task.getContent()
+                        task.getTaskDate(), task.getStatus(), task.getTitle(),
+                        limit(task.getContent(), 240)
                 ))
                 .toList();
+    }
+
+    private static String value(Object value) {
+        return value == null ? "未知" : String.valueOf(value);
     }
 
     private String writeCitations(List<RagSearchResult> citations) {

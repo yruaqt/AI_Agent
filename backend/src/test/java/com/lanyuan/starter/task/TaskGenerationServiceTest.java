@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -28,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -66,12 +68,25 @@ class TaskGenerationServiceTest {
         assertEquals(1, result.citations().size());
 
         verify(fixture.repository)
-                .findTop20ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
+                .findTop5ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
                         anyLong(), any(), any()
                 );
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         verify(fixture.chatModel).chat(promptCaptor.capture());
         assertTrue(promptCaptor.getValue().contains("近期未完成任务"));
+        assertTrue(promptCaptor.getValue().contains("天气摘要"));
+        assertFalse(promptCaptor.getValue().contains("cacheExpiresAt"));
+        assertTrue(promptCaptor.getValue().contains("历史任务5"));
+        assertFalse(promptCaptor.getValue().contains("历史任务6"));
+
+        ArgumentCaptor<Duration> timeoutCaptor = ArgumentCaptor.forClass(Duration.class);
+        verify(fixture.modelFactory).taskGenerationChatModel(timeoutCaptor.capture(), eq(0));
+        assertEquals(Duration.ofSeconds(120), timeoutCaptor.getValue());
+
+        ArgumentCaptor<com.lanyuan.starter.rag.RagSearchRequest> searchCaptor =
+                ArgumentCaptor.forClass(com.lanyuan.starter.rag.RagSearchRequest.class);
+        verify(fixture.ragSearchService).search(searchCaptor.capture());
+        assertEquals(3, searchCaptor.getValue().maxResults());
     }
 
     @Test
@@ -148,9 +163,9 @@ class TaskGenerationServiceTest {
         when(orchardService.detail(anyLong())).thenReturn(orchard);
         when(weatherService.queryOrchardWeather(anyLong(), anyInt())).thenReturn(weather);
         when(ragSearchService.search(any())).thenReturn(List.of(citation));
-        when(repository.findTop20ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
+        when(repository.findTop5ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
                 anyLong(), any(), any()
-        )).thenReturn(List.of());
+        )).thenReturn(historyTasks());
         when(modelFactory.taskGenerationChatModel(any(), anyInt())).thenReturn(chatModel);
         when(currentUser.id()).thenReturn(9001L);
         when(repository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -159,7 +174,18 @@ class TaskGenerationServiceTest {
                 orchardService, weatherService, ragSearchService, modelFactory,
                 repository, currentUser, new ObjectMapper()
         );
-        return new Fixture(service, orchard, modelFactory, repository, chatModel);
+        return new Fixture(service, orchard, modelFactory, repository, ragSearchService, chatModel);
+    }
+
+    private static List<FarmingTask> historyTasks() {
+        return java.util.stream.IntStream.rangeClosed(1, 6).mapToObj(index -> {
+            FarmingTask task = new FarmingTask();
+            task.setTaskDate(LocalDate.of(2026, 7, 20).plusDays(index));
+            task.setStatus(TaskStatus.TODO);
+            task.setTitle("历史任务" + index);
+            task.setContent("历史任务内容" + index);
+            return task;
+        }).toList();
     }
 
     private record Fixture(
@@ -167,6 +193,7 @@ class TaskGenerationServiceTest {
             Orchard orchard,
             BailianModelFactory modelFactory,
             FarmingTaskRepository repository,
+            RagSearchService ragSearchService,
             ChatModel chatModel
     ) {}
 }

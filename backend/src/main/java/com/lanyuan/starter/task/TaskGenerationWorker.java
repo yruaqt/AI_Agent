@@ -67,7 +67,12 @@ public class TaskGenerationWorker {
     }
 
     private static String message(Throwable error) {
-        return error.getMessage() == null ? "任务生成失败，请稍后重试" : error.getMessage();
+        Throwable root = error;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String value = root.getMessage();
+        return value == null || value.isBlank() ? "任务生成失败，请稍后重试" : value;
     }
 
     private static String limit(String value, int maxLength) {

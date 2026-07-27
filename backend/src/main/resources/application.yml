@@ -39,7 +39,7 @@ app:
 
 agent:
   task-generation:
-    model-timeout-seconds: ${TASK_GENERATION_MODEL_TIMEOUT_SECONDS:25}
+    model-timeout-seconds: ${TASK_GENERATION_MODEL_TIMEOUT_SECONDS:120}
     model-max-retries: ${TASK_GENERATION_MODEL_MAX_RETRIES:0}
 
 

@@ -1,6 +1,6 @@
 #FileLock
-#Mon Jul 27 19:04:38 CST 2026
-server=192.168.88.1\:62315
-hostName=LAPTOP-CQQC1CFC
+#Mon Jul 27 23:04:20 CST 2026
+hostName=192.168.88.1
+id=19fa41b003eee8aa06861586e605575b45f2e63faa2
 method=file
-id=19fa33f84ce7f44a5eae041a53c2ae3085931841953
+server=192.168.88.1\:59968

@@ -30,7 +30,7 @@ public interface FarmingTaskRepository extends JpaRepository<FarmingTask, Long> 
     /**
      * 生成新任务时读取近期未结束任务，供模型去重并延续正在执行的工作。
      */
-    List<FarmingTask> findTop20ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
+    List<FarmingTask> findTop5ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
             Long orchardId, LocalDate taskDate, Collection<TaskStatus> statuses
     );
 }
