@@ -29,7 +29,7 @@ const auth = useAuthStore()
 
 // 文档数据
 interface KnowledgeDocument {
-  id: string
+  documentId: string
   title: string
   sourceOrganization?: string
   publishDate?: string
@@ -265,7 +265,7 @@ async function reindex(row: KnowledgeDocument) {
       '确认重新处理',
       { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' }
     )
-    await api.post(`/knowledge/documents/${row.id}/reindex`)
+    await api.post(`/knowledge/documents/${Number(row.documentId)}/reindex`)
     ElMessage.success('已提交重新处理，请稍后刷新查看状态')
     load()
   } catch (action) {
@@ -283,7 +283,7 @@ async function remove(row: KnowledgeDocument) {
       '确认删除',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )
-    await api.delete(`/knowledge/documents/${row.id}`)
+    await api.delete(`/knowledge/documents/${Number(row.documentId)}`)
     ElMessage.success('文档已删除')
     load()
   } catch (action) {
@@ -300,7 +300,7 @@ async function openDetail(row: KnowledgeDocument) {
   detailLoading.value = true
   try {
     const detail = unwrap<KnowledgeDocument>(
-      await api.get(`/knowledge/documents/${row.id}`)
+      await api.get(`/knowledge/documents/${Number(row.documentId)}`)
     )
     currentDoc.value = detail
   } catch (e) {
@@ -355,6 +355,11 @@ function formatSize(bytes?: number) {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / 1024 / 1024).toFixed(2) + ' MB'
+}
+
+function formatTime(time?: string) {
+  if (!time) return '—'
+  return time.replace(/\.\d{3}Z?$/, '').replace('T', ' ').substring(0, 16)
 }
 
 onMounted(load)
@@ -452,8 +457,8 @@ onMounted(load)
               <tr>
                 <th>资料名称</th>
                 <th>来源单位</th>
-                <th>类型</th>
-                <th>地区</th>
+                <th class="col-type">类型</th>
+                <th class="col-region">地区</th>
                 <th>物候期</th>
                 <th>片段</th>
                 <th>状态</th>
@@ -462,15 +467,13 @@ onMounted(load)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="doc in docs" :key="doc.id">
+              <tr v-for="doc in docs" :key="doc.documentId">
                 <td class="name-cell">
                   <Document class="icon" />
-                  <div class="name-info">
-                    <strong>{{ doc.title }}</strong>
-                    <span v-if="doc.fileType" class="file-type">{{ doc.fileType }}</span>
-                  </div>
+                  <span>{{ doc.title }}</span>
+                  <span v-if="doc.fileType" class="file-type">{{ doc.fileType }}</span>
                 </td>
-                <td class="source-cell">
+                <td>
                   <OfficeBuilding class="icon-sm" />
                   <span>{{ doc.sourceOrganization || '—' }}</span>
                 </td>
@@ -478,7 +481,7 @@ onMounted(load)
                   <span v-if="doc.documentType" class="type-tag">{{ doc.documentType }}</span>
                   <span v-else class="muted">—</span>
                 </td>
-                <td class="region-cell">
+                <td>
                   <Location v-if="doc.region" class="icon-sm" />
                   <span>{{ doc.region || '—' }}</span>
                 </td>
@@ -500,7 +503,7 @@ onMounted(load)
                     {{ statusMap[doc.status]?.label || doc.status }}
                   </span>
                 </td>
-                <td class="time-cell">{{ doc.updatedAt || doc.createdAt || '—' }}</td>
+                <td class="time-cell">{{ formatTime(doc.updatedAt || doc.createdAt) }}</td>
                 <td class="actions-cell">
                   <div class="actions">
                     <button class="action-btn view" title="查看详情" @click="openDetail(doc)">
@@ -681,11 +684,11 @@ onMounted(load)
             </div>
             <div class="detail-section">
               <div class="detail-label">创建时间</div>
-              <div class="detail-value">{{ currentDoc.createdAt || '—' }}</div>
+              <div class="detail-value">{{ formatTime(currentDoc.createdAt) }}</div>
             </div>
             <div class="detail-section">
               <div class="detail-label">更新时间</div>
-              <div class="detail-value">{{ currentDoc.updatedAt || '—' }}</div>
+              <div class="detail-value">{{ formatTime(currentDoc.updatedAt) }}</div>
             </div>
           </div>
 
@@ -913,7 +916,7 @@ onMounted(load)
 
 .data-table th {
   background: var(--green-light);
-  padding: 14px 16px;
+  padding: 14px 20px;
   text-align: left;
   font-weight: 600;
   color: var(--green-dark);
@@ -921,87 +924,79 @@ onMounted(load)
   border-bottom: 2px solid var(--line);
 }
 
+.col-type {
+  min-width: 110px;
+}
+
+.col-region {
+  min-width: 100px;
+}
+
 .data-table td {
-  padding: 14px 16px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
-  vertical-align: middle;
 }
 
 .data-table tbody tr:hover {
   background: var(--green-light);
 }
 
-.name-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 220px;
-}
-
 .name-cell .icon {
   color: var(--green);
-  font-size: 18px;
-  flex: none;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 6px;
 }
 
-.name-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.name-info strong {
-  font-size: 13.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 280px;
+.name-cell span {
+  vertical-align: middle;
 }
 
 .file-type {
+  display: inline-block;
+  margin-left: 6px;
   font-size: 11px;
   color: var(--muted);
-}
-
-.source-cell,
-.region-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  vertical-align: middle;
 }
 
 .icon-sm {
-  font-size: 13px;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 6px;
   color: var(--muted);
 }
 
 .type-tag {
   display: inline-block;
-  padding: 3px 10px;
+  padding: 4px 10px;
   background: var(--lime-light);
   color: #6f8a3a;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
+  vertical-align: middle;
 }
 
 .phenology-tag {
   display: inline-block;
-  padding: 3px 10px;
+  padding: 4px 10px;
   background: var(--green-light);
   color: var(--green);
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 .chunk-count {
   font-weight: 700;
   color: var(--green-dark);
+  vertical-align: middle;
 }
 
 .time-cell {
@@ -1024,10 +1019,12 @@ onMounted(load)
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 .status-badge .status-icon {
-  font-size: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .status-pending {
@@ -1072,6 +1069,11 @@ onMounted(load)
   background: white;
   color: var(--muted);
   transition: all 0.2s;
+}
+
+.action-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .action-btn:hover {
@@ -1198,8 +1200,14 @@ onMounted(load)
 
 .detail-title .icon {
   color: var(--green);
-  font-size: 22px;
+  width: 18px;
+  height: 18px;
   flex: none;
+}
+
+.detail-title .icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .detail-title strong {
@@ -1219,9 +1227,15 @@ onMounted(load)
 }
 
 .error-block .el-icon {
-  font-size: 18px;
+  width: 16px;
+  height: 16px;
   flex: none;
   margin-top: 2px;
+}
+
+.error-block .el-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .error-block strong {
@@ -1256,7 +1270,13 @@ onMounted(load)
 }
 
 .detail-label :deep(.el-icon) {
-  font-size: 13px;
+  width: 14px;
+  height: 14px;
+}
+
+.detail-label svg {
+  width: 14px;
+  height: 14px;
 }
 
 .detail-value {
@@ -1426,8 +1446,11 @@ onMounted(load)
     flex-wrap: wrap;
   }
 
-  .name-info strong {
+  .name-cell span {
     max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 </style>

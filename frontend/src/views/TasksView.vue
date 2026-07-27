@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, reactive, computed, watch } from 'vue'
+import { onMounted, onUnmounted, ref, reactive, computed, watch } from 'vue'
 import api, { unwrap } from '@/api'
 import type { Orchard, PageData, Task } from '@/types'
 import { useAuthStore } from '@/stores/auth'
@@ -32,7 +32,14 @@ const loading = ref(false)
 const allTasksLoading = ref(false)
 const error = ref<string | null>(null)
 const generating = ref(false)
-const date = ref(new Date().toISOString().slice(0, 10))
+function getLocalDateStr() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+const date = ref(getLocalDateStr())
 const statusFilter = ref('')
 
 // 分页
@@ -47,7 +54,12 @@ const lastGenerated = ref<{
   batchId?: string
   weatherSummary?: string
   phenology?: string
+  tasks?: Task[]
 } | null>(null)
+
+const generatingStatus = ref<string>('') // PROCESSING / COMPLETED / FAILED
+const generationProgressTimer = ref<number | null>(null)
+const generationPollCount = ref(0)
 
 const currentOrchard = computed(() => orchards.value.find(o => o.id === orchardId.value) || null)
 
@@ -207,9 +219,17 @@ async function generate() {
     ElMessage.warning('请先选择果园')
     return
   }
+  if (!date.value) {
+    ElMessage.warning('请选择任务日期')
+    return
+  }
+  stopPolling()
   generating.value = true
+  generatingStatus.value = 'PROCESSING'
+  generationPollCount.value = 0
+  lastGenerated.value = null
   try {
-    const res = unwrap<any>(
+    const startRes = unwrap<any>(
       await api.post(
         `/orchards/${orchardId.value}/tasks/generate`,
         {
@@ -217,18 +237,80 @@ async function generate() {
           focus: '',
           saveAsDraft: true
         },
-        { timeout: 120000 }
+        { timeout: 30000 }
       )
     )
-    lastGenerated.value = {
-      batchId: res.batchId,
-      weatherSummary: res.weatherSummary,
-      phenology: res.phenology
-    }
-    ElMessage.success('农事任务已生成')
-    await fullRefresh()
-  } finally {
+    const batchId = startRes.batchId
+    console.log('[生成已提交] batchId=', batchId, ' reused=', startRes.reused)
+    startPolling(batchId)
+  } catch (e: any) {
     generating.value = false
+    generatingStatus.value = 'FAILED'
+    ElMessage.error(e?.message || '提交生成请求失败')
+  }
+}
+
+function startPolling(batchId: string) {
+  generationPollCount.value = 0
+  const maxPolls = 120
+  const intervalMs = 3000
+  let pollCount = 0
+
+  const poll = async () => {
+    pollCount++
+    generationPollCount.value = pollCount
+    try {
+      const res = unwrap<any>(await api.get(`/tasks/generate/${batchId}`))
+      const status = res.status
+
+      if (status === 'COMPLETED') {
+        stopPolling()
+        generating.value = false
+        generatingStatus.value = 'COMPLETED'
+        const taskCount = res.tasks?.length || 0
+        lastGenerated.value = {
+          batchId: res.batchId,
+          weatherSummary: res.weatherSummary,
+          phenology: res.phenology,
+          tasks: res.tasks
+        }
+        if (taskCount === 0) {
+          ElMessage.warning('Agent 未生成任何任务，请稍后重试')
+        } else {
+          ElMessage.success(`生成成功：${taskCount} 条任务`)
+        }
+        await fullRefresh()
+      } else if (status === 'FAILED') {
+        stopPolling()
+        generating.value = false
+        generatingStatus.value = 'FAILED'
+        ElMessage.error(res.errorMessage || '任务生成失败')
+      } else if (pollCount >= maxPolls) {
+        stopPolling()
+        generating.value = false
+        generatingStatus.value = 'FAILED'
+        ElMessage.warning('任务生成超时，请稍后刷新页面查看结果')
+      } else {
+        generationProgressTimer.value = window.setTimeout(poll, intervalMs)
+      }
+    } catch (e: any) {
+      if (pollCount >= maxPolls) {
+        stopPolling()
+        generating.value = false
+        generatingStatus.value = 'FAILED'
+        ElMessage.error('查询生成状态失败：' + (e?.message || '未知错误'))
+      } else {
+        generationProgressTimer.value = window.setTimeout(poll, intervalMs)
+      }
+    }
+  }
+  poll()
+}
+
+function stopPolling() {
+  if (generationProgressTimer.value) {
+    clearTimeout(generationProgressTimer.value)
+    generationProgressTimer.value = null
   }
 }
 
@@ -337,6 +419,10 @@ onMounted(() => {
   loadAllTasks()
   load()
 })
+
+onUnmounted(() => {
+  stopPolling()
+})
 </script>
 
 <template>
@@ -364,7 +450,8 @@ onMounted(() => {
           v-model="date"
           type="date"
           value-format="YYYY-MM-DD"
-          placeholder="选择日期"
+          placeholder="选择日期（不选则全部）"
+          clearable
         />
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
         <el-button
@@ -378,9 +465,22 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 生成结果摘要 -->
-    <div v-if="lastGenerated" class="panel" style="margin-bottom: 18px; padding: 14px 18px;">
-      <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted);">
+    <!-- 生成进度 / 结果摘要 -->
+    <div v-if="generating || lastGenerated" class="panel" style="margin-bottom: 18px; padding: 14px 18px;">
+      <!-- 生成中 -->
+      <div v-if="generating" style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted);">
+        <el-icon style="color: var(--green); font-size: 18px;" class="spin-icon"><MagicStick /></el-icon>
+        <span style="color: var(--text); font-weight: 500;">Agent 正在生成农事任务...</span>
+        <span style="color: var(--muted);">已等待 {{ generationPollCount * 3 }} 秒</span>
+        <el-progress
+          :percentage="Math.min(Math.round(generationPollCount / 120 * 100), 99)"
+          :show-text="false"
+          :stroke-width="4"
+          style="width: 180px; margin-left: 8px;"
+        />
+      </div>
+      <!-- 生成结果 -->
+      <div v-else-if="lastGenerated" style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted);">
         <span v-if="lastGenerated.weatherSummary">
           <el-icon style="vertical-align: -2px; margin-right: 4px;"><WarningFilled /></el-icon>
           天气：{{ lastGenerated.weatherSummary }}
@@ -392,6 +492,10 @@ onMounted(() => {
         <span v-if="lastGenerated.batchId">
           <el-icon style="vertical-align: -2px; margin-right: 4px;"><Document /></el-icon>
           批次：{{ lastGenerated.batchId }}
+        </span>
+        <span v-if="lastGenerated.tasks?.length">
+          <el-icon style="vertical-align: -2px; margin-right: 4px;"><Check /></el-icon>
+          共 {{ lastGenerated.tasks.length }} 条任务
         </span>
         <el-button link size="small" @click="lastGenerated = null" style="margin-left: auto;">清除</el-button>
       </div>
@@ -715,6 +819,15 @@ onMounted(() => {
 .task-stat-card:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
+}
+
+.spin-icon {
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .task-list-panel {
