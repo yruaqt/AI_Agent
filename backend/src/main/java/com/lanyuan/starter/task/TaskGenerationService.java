@@ -14,21 +14,29 @@ import com.lanyuan.starter.rag.RagSearchResult;
 import com.lanyuan.starter.rag.RagSearchService;
 import com.lanyuan.starter.weather.WeatherResult;
 import com.lanyuan.starter.weather.WeatherService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 读取果园、天气和知识库后调用百炼，校验结构化 JSON，再按草稿或待确认状态保存。
+ * 任务生成核心：准备上下文、调用模型、校验 JSON 并保存任务。
+ * 外层批次编排由 {@link TaskGenerationCoordinator} 负责，避免 HTTP 请求同步等待模型。
  */
 @Service
 public class TaskGenerationService {
 
+    private static final Logger log = LoggerFactory.getLogger(TaskGenerationService.class);
     private static final AtomicLong BATCH_SEQUENCE = new AtomicLong();
 
     private final OrchardService orchardService;
@@ -38,14 +46,19 @@ public class TaskGenerationService {
     private final FarmingTaskRepository taskRepository;
     private final CurrentUser currentUser;
     private final ObjectMapper objectMapper;
+    private final TaskGenerationProperties properties;
+    private final Executor lookupExecutor;
 
+    @Autowired
     public TaskGenerationService(OrchardService orchardService,
                                  WeatherService weatherService,
                                  RagSearchService ragSearchService,
                                  BailianModelFactory modelFactory,
                                  FarmingTaskRepository taskRepository,
                                  CurrentUser currentUser,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 TaskGenerationProperties properties,
+                                 @Qualifier("taskGenerationLookupExecutor") Executor lookupExecutor) {
         this.orchardService = orchardService;
         this.weatherService = weatherService;
         this.ragSearchService = ragSearchService;
@@ -53,45 +66,90 @@ public class TaskGenerationService {
         this.taskRepository = taskRepository;
         this.currentUser = currentUser;
         this.objectMapper = objectMapper;
+        this.properties = properties;
+        this.lookupExecutor = lookupExecutor;
     }
 
-    @Transactional
-    public TaskGenerationResponse generate(Long orchardId, LocalDate date,
-                                           String focus, boolean saveAsDraft) {
+    /** 兼容现有单元测试和内部同步调用方。 */
+    public TaskGenerationService(OrchardService orchardService,
+                                 WeatherService weatherService,
+                                 RagSearchService ragSearchService,
+                                 BailianModelFactory modelFactory,
+                                 FarmingTaskRepository taskRepository,
+                                 CurrentUser currentUser,
+                                 ObjectMapper objectMapper) {
+        this(orchardService, weatherService, ragSearchService, modelFactory, taskRepository,
+                currentUser, objectMapper, new TaskGenerationProperties(25, 0), Runnable::run);
+    }
+
+    /** 保留给旧调用方和单元测试的同步入口；HTTP 接口不再调用此方法。 */
+    public TaskGenerationResponse generate(Long orchardId, LocalDate date, String focus,
+                                           boolean saveAsDraft) {
+        return generate(orchardId, date, focus, saveAsDraft, currentUser.id());
+    }
+
+    public TaskGenerationResponse generate(Long orchardId, LocalDate date, String focus,
+                                           boolean saveAsDraft, Long generatedBy) {
+        return generate(orchardId, date, focus, saveAsDraft, generatedBy, newBatchId());
+    }
+
+    public TaskGenerationResponse generate(Long orchardId, LocalDate date, String focus,
+                                           boolean saveAsDraft, Long generatedBy, Long batchId) {
+        long totalStarted = System.nanoTime();
         Orchard orchard = orchardService.detail(orchardId);
         if (orchard.getStatus() != EnabledStatus.ENABLED) {
             throw new BusinessException(ErrorCode.CONFLICT, "停用果园不能生成新任务");
         }
-        WeatherResult weather = weatherService.queryOrchardWeather(orchardId, 3);
-        List<RagSearchResult> citations = ragSearchService.search(new RagSearchRequest(
-                buildQuery(orchard, focus), 5, 0.45,
-                new RagSearchRequest.Filters(
-                        orchard.getCurrentPhenology() == null ? null : orchard.getCurrentPhenology().name(),
-                        orchard.getProvince(), null
-                )
-        ));
+        log.info("农事任务生成开始 orchardId={} date={} generatedBy={}", orchardId, date, generatedBy);
+
+        long contextStarted = System.nanoTime();
+        CompletableFuture<WeatherResult> weatherFuture = CompletableFuture.supplyAsync(
+                () -> weatherService.queryOrchardWeather(orchardId, 3), lookupExecutor);
+        CompletableFuture<List<RagSearchResult>> citationFuture = CompletableFuture.supplyAsync(
+                () -> ragSearchService.search(new RagSearchRequest(
+                        buildQuery(orchard, focus), 5, 0.45,
+                        new RagSearchRequest.Filters(
+                                orchard.getCurrentPhenology() == null ? null : orchard.getCurrentPhenology().name(),
+                                orchard.getProvince(), null
+                        )
+                )), lookupExecutor);
         List<FarmingTask> unfinishedTasks = taskRepository
                 .findTop20ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
                         orchardId, date,
                         EnumSet.of(TaskStatus.DRAFT, TaskStatus.CONFIRMED, TaskStatus.TODO, TaskStatus.DOING)
                 );
+        WeatherResult weather;
+        List<RagSearchResult> citations;
+        try {
+            weather = weatherFuture.join();
+            citations = citationFuture.join();
+        } catch (CompletionException ex) {
+            throw unwrapContextFailure(ex);
+        }
+        log.info("农事任务上下文完成 orchardId={} date={} elapsedMs={} unfinishedCount={} citationCount={}",
+                orchardId, date, elapsedMs(contextStarted), unfinishedTasks.size(), citations.size());
 
         String raw;
+        long modelStarted = System.nanoTime();
         try {
-            raw = modelFactory.chatModel().chat(buildPrompt(
-                    orchard, date, focus, weather, citations, unfinishedTasks
-            ));
+            raw = modelFactory.taskGenerationChatModel(
+                    properties.getModelTimeout(), properties.getModelMaxRetries()
+            ).chat(buildPrompt(orchard, date, focus, weather, citations, unfinishedTasks));
         } catch (RuntimeException ex) {
+            log.warn("农事任务模型调用失败 orchardId={} date={} elapsedMs={}",
+                    orchardId, date, elapsedMs(modelStarted), ex);
             throw new TaskGenerationException("阿里百炼任务生成失败", ex);
         }
+        log.info("农事任务模型调用完成 orchardId={} date={} elapsedMs={}",
+                orchardId, date, elapsedMs(modelStarted));
+
         GeneratedTaskDraft generated = parse(raw);
         if (generated.tasks() == null || generated.tasks().isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "模型未生成有效农事任务");
         }
 
-        long batchId = newBatchId();
         String citationsJson = writeCitations(citations);
-        List<FarmingTask> saved = new ArrayList<>();
+        List<FarmingTask> toSave = new ArrayList<>();
         for (GeneratedTaskDraft.Item item : generated.tasks()) {
             validate(item);
             FarmingTask task = new FarmingTask();
@@ -106,17 +164,27 @@ public class TaskGenerationService {
             task.setStatus(saveAsDraft ? TaskStatus.DRAFT : TaskStatus.CONFIRMED);
             task.setBasis(item.basis().trim());
             task.setSafetyNotice(limit(item.safetyNotice().trim(), 1000));
-            task.setGeneratedBy(currentUser.id());
+            task.setGeneratedBy(generatedBy);
             task.setCitationsJson(citationsJson);
-            saved.add(taskRepository.save(task));
+            toSave.add(task);
         }
-        List<Object> citationViews = objectMapper.convertValue(citations, new com.fasterxml.jackson.core.type.TypeReference<>() {});
-        List<FarmingTaskView> views = saved.stream().map(value -> FarmingTaskView.from(value, objectMapper)).toList();
+        List<FarmingTask> saved = taskRepository.saveAll(toSave);
+        List<Object> citationViews = objectMapper.convertValue(citations,
+                new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        List<FarmingTaskView> views = saved.stream()
+                .map(value -> FarmingTaskView.from(value, objectMapper)).toList();
+        log.info("农事任务生成完成 orchardId={} date={} batchId={} taskCount={} totalElapsedMs={}",
+                orchardId, date, batchId, views.size(), elapsedMs(totalStarted));
         return new TaskGenerationResponse(
                 String.valueOf(batchId), generated.weatherSummary(),
                 orchard.getCurrentPhenology() == null ? null : orchard.getCurrentPhenology().name(),
                 views, citationViews
         );
+    }
+
+    private static RuntimeException unwrapContextFailure(CompletionException ex) {
+        Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+        return cause instanceof RuntimeException runtime ? runtime : new IllegalStateException(cause);
     }
 
     private GeneratedTaskDraft parse(String raw) {
@@ -198,8 +266,12 @@ public class TaskGenerationService {
         }
     }
 
-    private static long newBatchId() {
+    static long newBatchId() {
         return System.currentTimeMillis() * 1000 + BATCH_SEQUENCE.getAndIncrement() % 1000;
+    }
+
+    private static long elapsedMs(long started) {
+        return (System.nanoTime() - started) / 1_000_000;
     }
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }

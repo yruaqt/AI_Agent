@@ -10,6 +10,9 @@ import java.time.LocalDate;
 
 public interface TrainingRecordRepository extends JpaRepository<TrainingRecord, Long> {
 
+    boolean existsByStudentIdAndOrchardIdAndRecordDateAndPhenomenon(
+            Long studentId, Long orchardId, LocalDate recordDate, String phenomenon);
+
     @Query("SELECT t FROM TrainingRecord t WHERE " +
            "(:orchardId IS NULL OR t.orchardId = :orchardId) AND " +
            "(:studentId IS NULL OR t.studentId = :studentId) AND " +

@@ -12,6 +12,10 @@ import java.util.List;
 
 public interface FarmingTaskRepository extends JpaRepository<FarmingTask, Long> {
 
+    boolean existsByOrchardIdAndTitle(Long orchardId, String title);
+
+    List<FarmingTask> findByBatchIdOrderByIdAsc(Long batchId);
+
     @Query("""
             select task from FarmingTask task
             where (:orchardId is null or task.orchardId = :orchardId)

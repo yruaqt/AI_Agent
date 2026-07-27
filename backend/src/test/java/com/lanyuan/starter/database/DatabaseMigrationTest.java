@@ -22,7 +22,7 @@ class DatabaseMigrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void commonMigrationsReachVersion101() {
+    void commonMigrationsReachVersion103() {
         String version = jdbcTemplate.queryForObject("""
                 SELECT "version"
                 FROM "flyway_schema_history"
@@ -30,7 +30,7 @@ class DatabaseMigrationTest {
                 ORDER BY "installed_rank" DESC
                 LIMIT 1
                 """, String.class);
-        assertEquals("101", version);
+        assertEquals("103", version);
     }
 
     @Test
@@ -41,6 +41,8 @@ class DatabaseMigrationTest {
         assertConstraint("CK_ORCHARD_AREA_POSITIVE");
         assertConstraint("CK_TRAINING_COUNT_RELATION");
         assertConstraint("CK_FARMING_TASK_STATUS");
+        assertConstraint("UK_TASK_GENERATION_ORCHARD_DATE");
+        assertConstraint("CK_TASK_GENERATION_STATUS");
     }
 
     @Test

@@ -6,7 +6,7 @@
 - PostgreSQL 环境启用 `postgres` profile，加载公共迁移和 `db/migration-postgresql`。
 - PostgreSQL Docker 镜像使用 `pgvector/pgvector:pg16`，用于执行 `V100__enable_pgvector.sql`。
 
-公共迁移当前版本为 `V101`。已有迁移文件不得修改，应继续新增更高版本迁移。
+公共迁移当前版本为 `V102`。已有迁移文件不得修改，应继续新增更高版本迁移。
 
 ## Docker 演示环境
 

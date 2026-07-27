@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8083}
 spring:
   application:
     name: olive-agent-starter
@@ -36,5 +36,10 @@ app:
   demo-data:
     enabled: ${DEMO_DATA_ENABLED:true}
     password: ${DEMO_PASSWORD:123456}
+
+agent:
+  task-generation:
+    model-timeout-seconds: ${TASK_GENERATION_MODEL_TIMEOUT_SECONDS:25}
+    model-max-retries: ${TASK_GENERATION_MODEL_MAX_RETRIES:0}
 
 

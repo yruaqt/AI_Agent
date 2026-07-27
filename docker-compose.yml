@@ -16,6 +16,7 @@ services:
   backend:
     build: ./backend
     environment:
+      SERVER_PORT: 8080
       SPRING_PROFILES_ACTIVE: postgres
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-olive_starter}
       DB_USERNAME: ${POSTGRES_USER:-olive}
