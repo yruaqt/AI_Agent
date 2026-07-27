@@ -128,8 +128,8 @@ function getErrorMessage(error: AxiosError<ApiError>): string {
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = getStoredToken()
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`
+    if (token) {
+      config.headers.set('Authorization', `Bearer ${token}`)
     }
     return config
   },

@@ -349,7 +349,7 @@ async function openEdit(record: TrainingRecord) {
     ElMessage.warning('您只能编辑自己的实训记录')
     return
   }
-  if (record.status === 'APPROVED') {
+  if (record.reviewStatus === 'APPROVED') {
     ElMessage.warning('教师已评价的记录无法修改')
     return
   }
@@ -412,8 +412,8 @@ function openReview(record: TrainingRecord) {
   }
   reviewRecord.value = record
   reviewForm.score = record.score || 85
-  reviewForm.comment = record.teacherComment || ''
-  reviewForm.status = record.status === 'REJECTED' ? 'REJECTED' : 'APPROVED'
+  reviewForm.comment = record.comment || ''
+  reviewForm.status = record.reviewStatus === 'REJECTED' ? 'REJECTED' : 'APPROVED'
   reviewVisible.value = true
 }
 
@@ -503,68 +503,66 @@ onMounted(load)
           title="暂无实训记录"
           description="还没有任何实训记录，点击右上角新增记录开始提交"
         />
-        <el-table v-else :data="records" stripe>
-          <el-table-column prop="recordDate" label="日期" width="120" />
-          <el-table-column label="抽查数据" width="150">
-            <template #default="{ row }">
-              <strong>{{ row.inspectedTreeCount || 0 }}</strong> 株 / 异常
-              <span class="priority-high">{{ row.abnormalTreeCount || 0 }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="phenomenon" label="现场现象" min-width="240" show-overflow-tooltip />
-          <el-table-column label="图片" width="80" align="center">
-            <template #default="{ row }">
-              <span v-if="row.images && row.images.length" class="img-count">
+        <div v-else class="record-cards">
+          <div v-for="row in records" :key="row.id" class="record-card" @click="openDetail(row)">
+            <div class="card-header">
+              <div class="card-meta">
+                <span class="meta-date">{{ row.recordDate }}</span>
+                <span class="meta-author">{{ row.studentName || '—' }}</span>
+                <el-tag :type="statusTagType(row.reviewStatus || 'PENDING')" effect="plain" size="small">
+                  {{ statusText[row.reviewStatus || 'PENDING'] }}
+                </el-tag>
+                <span v-if="row.score !== undefined" class="card-score">
+                  <el-icon><Star /></el-icon>{{ row.score }}分
+                </span>
+              </div>
+              <div class="card-actions" @click.stop>
+                <el-button size="small" link :icon="View" @click="openDetail(row)">详情</el-button>
+                <el-button
+                  v-if="(auth.isAdmin || row.studentId === auth.user?.id) && row.reviewStatus !== 'APPROVED'"
+                  size="small"
+                  link
+                  :icon="Edit"
+                  @click="openEdit(row)"
+                >编辑</el-button>
+                <el-button
+                  v-if="auth.isAdmin"
+                  size="small"
+                  link
+                  type="primary"
+                  :icon="Check"
+                  @click="openReview(row)"
+                >评价</el-button>
+              </div>
+            </div>
+            <div class="card-stats">
+              <span class="stat-item">
+                <strong>{{ row.inspectedTreeCount || 0 }}</strong> 株抽查
+              </span>
+              <span class="stat-item" :class="{ warning: row.abnormalTreeCount > 0 }">
+                <strong>{{ row.abnormalTreeCount || 0 }}</strong> 株异常
+              </span>
+              <span v-if="row.images?.length" class="stat-item">
                 <el-icon><Picture /></el-icon>
-                {{ row.images.length }}
+                {{ row.images.length }} 张图片
               </span>
-              <span v-else class="muted">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="measure" label="处理措施" min-width="220" show-overflow-tooltip />
-          <el-table-column label="提交人" width="100">
-            <template #default="{ row }">
-              {{ row.studentName || '—' }}
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag :type="statusTagType(row.status || 'PENDING')" effect="plain" size="small">
-                {{ statusText[row.status || 'PENDING'] }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="评分" width="90">
-            <template #default="{ row }">
-              <span v-if="row.score !== undefined" class="score">
-                <el-icon style="color: var(--amber);"><Star /></el-icon>
-                {{ row.score }}
-              </span>
-              <span v-else class="muted">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="teacherComment" label="教师评语" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="createdAt" label="提交时间" width="180" />
-          <el-table-column label="操作" width="180" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" link :icon="View" @click="openDetail(row)">详情</el-button>
-              <el-button
-                v-if="(auth.isAdmin || row.studentId === auth.user?.id) && row.status !== 'APPROVED'"
-                size="small"
-                link
-                :icon="Edit"
-                @click="openEdit(row)"
-              >编辑</el-button>
-              <el-button
-                v-if="auth.isAdmin"
-                size="small"
-                link
-                :icon="Check"
-                @click="openReview(row)"
-              >评价</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+            </div>
+            <div class="card-content">
+              <div class="content-row">
+                <span class="content-label">现象：</span>
+                <span class="content-text">{{ row.phenomenon || '—' }}</span>
+              </div>
+              <div class="content-row">
+                <span class="content-label">措施：</span>
+                <span class="content-text">{{ row.measure || '—' }}</span>
+              </div>
+              <div v-if="row.comment" class="content-row comment">
+                <span class="content-label">评语：</span>
+                <span class="content-text">{{ row.comment }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div class="pagination-bar" v-if="pagination.total > 0">
           <el-pagination
@@ -640,8 +638,8 @@ onMounted(load)
     <el-drawer v-model="detailVisible" title="实训记录详情" size="min(480px, 92vw)" destroy-on-close>
       <div v-if="currentRecord" class="record-detail">
         <div class="detail-header">
-          <el-tag :type="statusTagType(currentRecord.status || 'PENDING')" size="small">
-            {{ statusText[currentRecord.status || 'PENDING'] }}
+          <el-tag :type="statusTagType(currentRecord.reviewStatus || 'PENDING')" size="small">
+            {{ statusText[currentRecord.reviewStatus || 'PENDING'] }}
           </el-tag>
           <span v-if="currentRecord.score !== undefined" class="score-badge">
             <el-icon style="color: var(--amber);"><Star /></el-icon>
@@ -722,16 +720,16 @@ onMounted(load)
           <div class="detail-value">{{ currentRecord.studentName || '—' }}</div>
         </div>
 
-        <div v-if="currentRecord.teacherComment" class="detail-section review-section">
+        <div v-if="currentRecord.comment" class="detail-section review-section">
           <div class="detail-label">
             <el-icon><Star /></el-icon> 教师评语
           </div>
-          <div class="detail-value" style="line-height: 1.7;">{{ currentRecord.teacherComment }}</div>
+          <div class="detail-value" style="line-height: 1.7;">{{ currentRecord.comment }}</div>
         </div>
 
         <div class="detail-actions" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);">
           <el-button
-            v-if="(auth.isAdmin || currentRecord.studentId === auth.user?.id) && currentRecord.status !== 'APPROVED'"
+            v-if="(auth.isAdmin || currentRecord.studentId === auth.user?.id) && currentRecord.reviewStatus !== 'APPROVED'"
             type="primary"
             :icon="Edit"
             @click="detailVisible = false; openEdit(currentRecord)"
@@ -1009,6 +1007,150 @@ onMounted(load)
 
 .score-input :deep(.el-slider) {
   flex: 1;
+}
+
+/* 卡片列表布局 */
+.record-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px;
+}
+
+.record-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.record-card:hover {
+  border-color: var(--green);
+  box-shadow: 0 2px 8px rgba(46, 107, 78, 0.1);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.meta-date {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.meta-author {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--lime-light);
+  color: #7a9442;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.card-score .el-icon {
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.card-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.card-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stat-item strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.stat-item.warning strong {
+  color: var(--red);
+}
+
+.stat-item .el-icon {
+  font-size: 14px;
+  color: var(--green);
+}
+
+.card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.content-row {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.content-row.comment {
+  background: var(--green-light);
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.content-label {
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.content-text {
+  color: var(--ink);
+  word-break: break-word;
+}
+
+/* 移动端适配 - 卡片 */
+@media (max-width: 760px) {
+  .card-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .card-actions {
+    align-self: flex-start;
+  }
+
+  .card-stats {
+    gap: 12px;
+  }
 }
 
 /* 移动端适配 */

@@ -210,11 +210,15 @@ async function generate() {
   generating.value = true
   try {
     const res = unwrap<any>(
-      await api.post(`/orchards/${orchardId.value}/tasks/generate`, {
-        date: date.value,
-        focus: '',
-        saveAsDraft: true
-      })
+      await api.post(
+        `/orchards/${orchardId.value}/tasks/generate`,
+        {
+          date: date.value,
+          focus: '',
+          saveAsDraft: true
+        },
+        { timeout: 120000 }
+      )
     )
     lastGenerated.value = {
       batchId: res.batchId,

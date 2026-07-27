@@ -182,8 +182,8 @@ export interface TrainingRecord {
   studentId: string
   studentName?: string
   score?: number
-  teacherComment?: string
-  status?: 'PENDING' | 'APPROVED' | 'REJECTED'
+  comment?: string  // 教师评语
+  reviewStatus?: 'PENDING' | 'APPROVED' | 'REJECTED'  // 评价状态
   createdAt?: string
   updatedAt?: string
 }

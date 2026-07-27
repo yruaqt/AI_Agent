@@ -20,9 +20,10 @@ import {
   Location,
   Orange,
   Bell,
-  Search
+  Search,
+  WarningFilled
 } from '@element-plus/icons-vue'
-import { ElDropdown } from 'element-plus'
+import { ElDropdown, ElMessage } from 'element-plus'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -33,6 +34,16 @@ const mobileOpen = ref(false)
 const orchardList = ref<Orchard[]>([])
 const currentOrchard = ref<Orchard | null>(null)
 const orchardLoading = ref(false)
+
+// 全局搜索
+const searchDialog = ref(false)
+const searchQuery = ref('')
+const searchResults = ref<any[]>([])
+const searching = ref(false)
+
+// 消息通知
+const notificationVisible = ref(false)
+const notifications = ref<any[]>([])
 
 const menus = [
   { path: '/', label: '果园总览', icon: DataAnalysis },
@@ -115,6 +126,34 @@ const userDropdownItems = [
 
 function handleUserCommand(command: string) {
   if (command === 'logout') logout()
+}
+
+function openSearchDialog() {
+  searchDialog.value = true
+  searchQuery.value = ''
+  searchResults.value = []
+}
+
+async function runGlobalSearch() {
+  if (!searchQuery.value.trim()) {
+    ElMessage.warning('请输入检索内容')
+    return
+  }
+  searching.value = true
+  try {
+    const payload = {
+      query: searchQuery.value.trim(),
+      maxResults: 5,
+      minScore: 0.65
+    }
+    const data = unwrap<any[]>(await api.post('/knowledge/search-test', payload))
+    searchResults.value = data || []
+  } catch (e: any) {
+    ElMessage.error(e?.message || '检索失败')
+    searchResults.value = []
+  } finally {
+    searching.value = false
+  }
 }
 
 onMounted(() => {
@@ -296,13 +335,25 @@ watch(
 
         <div class="topbar-right">
           <div class="topbar-actions desktop-only">
-            <button class="icon-button" title="搜索">
+            <button class="icon-button" title="搜索" @click="openSearchDialog">
               <el-icon><Search /></el-icon>
             </button>
-            <button class="icon-button notification-btn" title="消息通知">
-              <el-icon><Bell /></el-icon>
-              <span class="notification-dot"></span>
-            </button>
+            <div class="notification-wrap">
+              <button
+                class="icon-button notification-btn"
+                title="消息通知"
+                @click="notificationVisible = !notificationVisible"
+              >
+                <el-icon><Bell /></el-icon>
+                <span v-if="notifications.length" class="notification-dot"></span>
+              </button>
+              <div v-show="notificationVisible" class="notification-dropdown">
+                <div v-if="!notifications.length" class="notification-empty">
+                  <el-icon :size="32" class="empty-icon"><WarningFilled /></el-icon>
+                  <p>暂无消息通知</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <el-dropdown trigger="click" @command="handleUserCommand">
@@ -336,6 +387,48 @@ watch(
         <router-view :key="route.fullPath" />
       </section>
     </main>
+
+    <!-- 全局搜索弹窗 -->
+    <el-dialog
+      v-model="searchDialog"
+      title="知识库检索"
+      width="min(640px, 92vw)"
+      destroy-on-close
+    >
+      <el-input
+        v-model="searchQuery"
+        placeholder="输入问题检索知识库..."
+        clearable
+        @keyup.enter="runGlobalSearch"
+      >
+        <template #append>
+          <el-button :icon="Search" :loading="searching" @click="runGlobalSearch">
+            检索
+          </el-button>
+        </template>
+      </el-input>
+
+      <div class="global-search-results">
+        <div v-if="!searchResults.length && !searching && searchQuery" class="search-empty">
+          未找到相关知识来源
+        </div>
+        <div v-if="searching" class="search-empty">正在检索...</div>
+
+        <div
+          v-for="(r, idx) in searchResults"
+          :key="r.documentId + '-' + (r.chunkId || r.chunkNo || idx)"
+          class="search-hit"
+        >
+          <header>
+            <strong>{{ r.documentName || '未知来源' }}</strong>
+            <span v-if="r.score !== undefined" class="hit-score">
+              {{ (r.score * 100).toFixed(1) }}%
+            </span>
+          </header>
+          <p>{{ r.content }}</p>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -406,5 +499,88 @@ watch(
   100% {
     background-position: -200% 0;
   }
+}
+
+/* 通知下拉面板 */
+.notification-wrap {
+  position: relative;
+}
+
+.notification-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(46, 107, 78, 0.12);
+  z-index: 100;
+  padding: 16px;
+}
+
+.notification-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #888;
+  padding: 24px 0;
+}
+
+.notification-empty .empty-icon {
+  color: #c0c4cc;
+}
+
+/* 全局搜索弹窗结果 */
+.global-search-results {
+  margin-top: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.search-empty {
+  text-align: center;
+  color: #888;
+  padding: 24px 0;
+}
+
+.search-hit {
+  border: 1px solid rgba(46, 107, 78, 0.12);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #f8faf9;
+}
+
+.search-hit header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.search-hit strong {
+  color: #2e6b4e;
+  font-size: 14px;
+}
+
+.hit-score {
+  font-size: 12px;
+  color: #fff;
+  background: #2e6b4e;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.search-hit p {
+  margin: 0;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 </style>
