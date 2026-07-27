@@ -53,9 +53,10 @@ class TaskGenerationServiceTest {
                 1001L, LocalDate.of(2026, 7, 25), "重点检查病虫迹象", false
         );
 
-        ArgumentCaptor<FarmingTask> taskCaptor = ArgumentCaptor.forClass(FarmingTask.class);
-        verify(fixture.repository).save(taskCaptor.capture());
-        FarmingTask saved = taskCaptor.getValue();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FarmingTask>> taskCaptor = ArgumentCaptor.forClass(List.class);
+        verify(fixture.repository).saveAll(taskCaptor.capture());
+        FarmingTask saved = taskCaptor.getValue().get(0);
         assertEquals(TaskStatus.CONFIRMED, saved.getStatus());
         assertEquals(TaskPriority.HIGH, saved.getPriority());
         assertEquals(9001L, saved.getGeneratedBy());
@@ -82,8 +83,8 @@ class TaskGenerationServiceTest {
                 1001L, LocalDate.of(2026, 7, 25), null, true
         ));
 
-        verify(fixture.modelFactory, never()).chatModel();
-        verify(fixture.repository, never()).save(any());
+        verify(fixture.modelFactory, never()).taskGenerationChatModel(any(), anyInt());
+        verify(fixture.repository, never()).saveAll(any());
     }
 
     @Test
@@ -95,7 +96,7 @@ class TaskGenerationServiceTest {
                 1001L, LocalDate.of(2026, 7, 25), null, true
         ));
 
-        verify(fixture.repository, never()).save(any());
+        verify(fixture.repository, never()).saveAll(any());
     }
 
     @Test
@@ -113,7 +114,7 @@ class TaskGenerationServiceTest {
                 1001L, LocalDate.of(2026, 7, 25), null, true
         ));
 
-        verify(fixture.repository, never()).save(any());
+        verify(fixture.repository, never()).saveAll(any());
     }
 
     private static Fixture fixture() {
@@ -150,9 +151,9 @@ class TaskGenerationServiceTest {
         when(repository.findTop20ByOrchardIdAndTaskDateLessThanEqualAndStatusInOrderByTaskDateDesc(
                 anyLong(), any(), any()
         )).thenReturn(List.of());
-        when(modelFactory.chatModel()).thenReturn(chatModel);
+        when(modelFactory.taskGenerationChatModel(any(), anyInt())).thenReturn(chatModel);
         when(currentUser.id()).thenReturn(9001L);
-        when(repository.save(any(FarmingTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         TaskGenerationService service = new TaskGenerationService(
                 orchardService, weatherService, ragSearchService, modelFactory,

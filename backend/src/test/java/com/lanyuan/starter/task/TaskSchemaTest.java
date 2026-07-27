@@ -15,9 +15,13 @@ class TaskSchemaTest {
     @Autowired
     private FarmingTaskRepository taskRepository;
 
+    @Autowired
+    private TaskGenerationJobRepository generationJobRepository;
+
     @Test
     void farmingTaskSchemaAndRepositoryAreReady() {
         assertNotNull(taskRepository);
         assertNotNull(taskRepository.count());
+        assertNotNull(generationJobRepository.count());
     }
 }

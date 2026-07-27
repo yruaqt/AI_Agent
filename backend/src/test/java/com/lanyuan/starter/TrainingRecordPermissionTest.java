@@ -42,6 +42,7 @@ class TrainingRecordPermissionTest {
 
     private String studentAToken;
     private String adminToken;
+    private Long orchardId;
     private Long studentBRecordId;
     private Long reviewRecordId;
 
@@ -74,6 +75,7 @@ class TrainingRecordPermissionTest {
             orchardRepository.save(orchard);
         }
         Orchard orchard = orchardRepository.findAll().get(0);
+        orchardId = orchard.getId();
 
         AppUser studentB = userRepository.findByUsername("studentB").orElseThrow();
 
@@ -110,7 +112,7 @@ class TrainingRecordPermissionTest {
     @Test
     void update_requiresOwnershipForNonAdmin() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString()
         );
 
@@ -146,7 +148,7 @@ class TrainingRecordPermissionTest {
     @Test
     void studentCannotUpdateOtherStudentRecord() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString()
         );
 
@@ -184,7 +186,7 @@ class TrainingRecordPermissionTest {
     @Test
     void adminCanUpdateAnyRecord() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString()
         );
 
@@ -216,7 +218,7 @@ class TrainingRecordPermissionTest {
     @Test
     void create_abnormalCountCannotExceedInspected() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString(),
                 "inspectedTreeCount", 10,
                 "abnormalTreeCount", 20  // 异常 > 抽查 → 400
@@ -232,7 +234,7 @@ class TrainingRecordPermissionTest {
     @Test
     void update_abnormalCountCannotExceedInspected() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString(),
                 "inspectedTreeCount", 10,
                 "abnormalTreeCount", 15  // 异常 > 抽查 → 400
@@ -248,7 +250,7 @@ class TrainingRecordPermissionTest {
     @Test
     void create_inspectedCountCannotBeNegative() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString(),
                 "inspectedTreeCount", -5  // 负数 → 400
         );
@@ -263,7 +265,7 @@ class TrainingRecordPermissionTest {
     @Test
     void create_abnormalCountCannotBeNegative() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString(),
                 "abnormalTreeCount", -1  // 负数 → 400
         );
@@ -294,7 +296,7 @@ class TrainingRecordPermissionTest {
     @Test
     void createRecord_success() throws Exception {
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString(),
                 "inspectedTreeCount", 10,
                 "abnormalTreeCount", 2
@@ -311,7 +313,7 @@ class TrainingRecordPermissionTest {
     void studentCanViewOwnRecord() throws Exception {
         // 先以学生A身份创建一条记录
         Map<String, Object> payload = Map.of(
-                "orchardId", 1,
+                "orchardId", orchardId,
                 "recordDate", LocalDate.now().toString(),
                 "inspectedTreeCount", 10,
                 "abnormalTreeCount", 1

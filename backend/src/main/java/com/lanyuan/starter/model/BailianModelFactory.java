@@ -8,6 +8,7 @@ import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -22,6 +23,7 @@ public class BailianModelFactory {
     private final BailianEmbeddingModelListener embeddingListener;
 
     private volatile ChatModel chatModel;
+    private volatile ChatModel taskGenerationChatModel;
     private volatile StreamingChatModel streamingChatModel;
     private volatile EmbeddingModel embeddingModel;
 
@@ -79,6 +81,32 @@ public class BailianModelFactory {
                             .listeners(chatListener)
                             .build();
                     streamingChatModel = result;
+                }
+            }
+        }
+        return result;
+    }
+
+    /** 农事任务使用独立且更短的超时，避免影响普通对话模型配置。 */
+    public ChatModel taskGenerationChatModel(Duration timeout, int maxRetries) {
+        ensureConfigured();
+        ChatModel result = taskGenerationChatModel;
+        if (result == null) {
+            synchronized (this) {
+                result = taskGenerationChatModel;
+                if (result == null) {
+                    result = OpenAiChatModel.builder()
+                            .baseUrl(properties.getBaseUrl())
+                            .apiKey(properties.getApiKey())
+                            .modelName(properties.getChatModel())
+                            .temperature(properties.getTemperature())
+                            .timeout(timeout)
+                            .maxRetries(maxRetries)
+                            .logRequests(false)
+                            .logResponses(false)
+                            .listeners(chatListener)
+                            .build();
+                    taskGenerationChatModel = result;
                 }
             }
         }

@@ -11,7 +11,7 @@ const formRef = ref<FormInstance>()
 
 const form = reactive({
   username: 'admin',
-  password: 'admin123'
+  password: '123456'
 })
 
 const rules = reactive<FormRules>({
@@ -42,7 +42,7 @@ async function submit() {
       router.push('/')
     }
   } catch {
-    ElMessage.error('账号或密码错误')
+    // 具体错误已由全局 Axios 拦截器提示，避免锁定提示与“账号或密码错误”重复弹出。
   }
 }
 </script>
@@ -113,8 +113,8 @@ async function submit() {
         </el-form>
 
         <div class="demo-accounts">
-          <span>管理员 admin / admin123</span>
-          <span>学生 student01 / student123</span>
+          <span>管理员 admin / 123456</span>
+          <span>学生 student / 123456</span>
         </div>
       </div>
 

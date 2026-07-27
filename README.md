@@ -30,9 +30,9 @@ npm run dev
 访问：
 
 - 前端：http://localhost:5173
-- 后端状态：http://localhost:8080/api/v1/system/status
-- Swagger：http://localhost:8080/swagger-ui/index.html
-- H2 Console：http://localhost:8080/h2-console
+- 后端状态：http://localhost:8083/api/v1/system/status
+- Swagger：http://localhost:8083/swagger-ui/index.html
+- H2 Console：http://localhost:8083/h2-console
 
 ## Docker
 

@@ -21,4 +21,6 @@ public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocu
                                             Pageable pageable);
 
     Optional<KnowledgeDocument> findByIdAndDeletedFalse(Long id);
+
+    Optional<KnowledgeDocument> findByTitleAndDeletedFalse(String title);
 }
