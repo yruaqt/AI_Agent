@@ -13,6 +13,7 @@ import jakarta.validation.constraints.Size;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -32,23 +33,29 @@ import java.time.LocalDate;
 @Tag(name = "农事任务", description = "Agent 任务生成、查询、修改和状态流转")
 public class FarmingTaskController extends ControllerSupport {
 
-    private final TaskGenerationService generationService;
+    private final TaskGenerationCoordinator generationCoordinator;
     private final FarmingTaskService taskService;
 
-    public FarmingTaskController(TaskGenerationService generationService,
+    public FarmingTaskController(TaskGenerationCoordinator generationCoordinator,
                                  FarmingTaskService taskService) {
-        this.generationService = generationService;
+        this.generationCoordinator = generationCoordinator;
         this.taskService = taskService;
     }
 
     @PostMapping("/orchards/{orchardId}/tasks/generate")
-    @Operation(summary = "Agent 生成结构化农事任务")
-    public ApiResponse<TaskGenerationResponse> generate(
+    @Operation(summary = "提交异步农事任务生成请求")
+    public ResponseEntity<ApiResponse<TaskGenerationStartResponse>> generate(
             @PathVariable @Min(1) Long orchardId,
             @Valid @RequestBody GenerateTaskRequest request) {
-        return ApiResponse.ok(generationService.generate(
-                orchardId, request.date(), request.focus(), request.saveAsDraft()
-        ));
+        return ResponseEntity.accepted().body(ApiResponse.ok(generationCoordinator.start(
+                orchardId, request.date(), request.focus(), request.saveAsDraft())));
+    }
+
+    @GetMapping("/tasks/generate/{batchId}")
+    @Operation(summary = "查询农事任务生成进度")
+    public ApiResponse<TaskGenerationStatusResponse> generationStatus(
+            @PathVariable @Min(1) Long batchId) {
+        return ApiResponse.ok(generationCoordinator.status(batchId));
     }
 
     @GetMapping("/tasks")

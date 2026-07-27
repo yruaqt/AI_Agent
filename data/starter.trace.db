@@ -1,0 +1,6 @@
+2026-07-27 10:54:29.134271+08:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "FLYWAY_SCHEMA_HISTORY" not found (candidates are: "flyway_schema_history"); SQL statement:
+SELECT VERSION, DESCRIPTION, CHECKSUM, SUCCESS FROM FLYWAY_SCHEMA_HISTORY ORDER BY INSTALLED_RANK [42103-224]
+2026-07-27 10:54:43.669080+08:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "FLYWAY_SCHEMA_HISTORY" not found (candidates are: "flyway_schema_history"); SQL statement:
+SELECT version, description, checksum, success FROM flyway_schema_history ORDER BY installed_rank [42103-224]

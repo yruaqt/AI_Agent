@@ -44,7 +44,8 @@ class ChatSessionPermissionTest {
         when(currentUser.id()).thenReturn(11L);
         when(repository.save(any(ChatSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ChatSessionService service = new ChatSessionService(repository, orchardService, currentUser);
+        ChatSessionService service = new ChatSessionService(
+                repository, mock(ChatMessageRepository.class), orchardService, currentUser);
         ChatSession created = service.create(2001L, "幼果期管理咨询");
 
         assertEquals(11L, created.getUserId());
@@ -107,7 +108,8 @@ class ChatSessionPermissionTest {
 
     private static ChatSessionService service(ChatSessionRepository repository,
                                               CurrentUser currentUser) {
-        return new ChatSessionService(repository, mock(OrchardService.class), currentUser);
+        return new ChatSessionService(
+                repository, mock(ChatMessageRepository.class), mock(OrchardService.class), currentUser);
     }
 
     private static ChatSession session(Long userId) {

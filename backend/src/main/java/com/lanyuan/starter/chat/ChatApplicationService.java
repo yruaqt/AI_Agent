@@ -1,5 +1,7 @@
 package com.lanyuan.starter.chat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lanyuan.starter.agent.AgentInvocationContext;
 import com.lanyuan.starter.common.exception.BusinessException;
 import com.lanyuan.starter.common.exception.ErrorCode;
@@ -36,6 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChatApplicationService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatApplicationService.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ChatSessionService sessionService;
     private final ChatMessageService messageService;
@@ -307,7 +310,8 @@ public class ChatApplicationService {
 
     private static ChatResponseData.ToolCallSummary toolSummary(ToolExecution value) {
         return new ChatResponseData.ToolCallSummary(
-                value.request().name(), value.hasFailed() ? "FAILED" : "SUCCESS", limit(value.result(), 200)
+                value.request().name(), value.hasFailed() ? "FAILED" : "SUCCESS",
+                summarizeToolResult(value)
         );
     }
 
@@ -342,8 +346,80 @@ public class ChatApplicationService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("name", value.request().name());
         data.put("status", value.hasFailed() ? "FAILED" : "SUCCESS");
-        data.put("summary", limit(value.result(), 200));
+        data.put("summary", summarizeToolResult(value));
         return send(emitter, "tool_result", data);
+    }
+
+    private static String summarizeToolResult(ToolExecution value) {
+        if (value.hasFailed()) return "查询失败，请稍后重试";
+        try {
+            JsonNode root = JSON.readTree(value.result());
+            return switch (value.request().name()) {
+                case "getOrchardContext" -> orchardSummary(root);
+                case "queryOrchardWeather" -> weatherSummary(root);
+                case "calculateIrrigation" -> "灌溉量计算完成："
+                        + text(root, "totalLiters") + " 升（"
+                        + text(root, "totalCubicMeters") + " 立方米）";
+                case "calculateFertilizer" -> "肥料用量计算完成："
+                        + text(root, "totalKg") + " 千克（"
+                        + text(root, "totalTon") + " 吨）";
+                case "calculateDilution" -> "稀释用量计算完成：原药约 "
+                        + text(root, "originalAgentMilliliters") + " 毫升";
+                case "calculateYieldEstimate" -> "产量估算完成：约 "
+                        + text(root, "estimatedTotalYieldKg") + " 千克（"
+                        + text(root, "estimatedTotalYieldTon") + " 吨）";
+                default -> "查询完成，结果已用于生成回答";
+            };
+        } catch (Exception ignored) {
+            return "查询完成，结果已用于生成回答";
+        }
+    }
+
+    private static String orchardSummary(JsonNode root) {
+        List<String> parts = new ArrayList<>();
+        add(parts, "果园：", text(root, "name"), "");
+        add(parts, "面积：", text(root, "areaMu"), " 亩");
+        add(parts, "树木：", text(root, "treeCount"), " 株");
+        add(parts, "品种：", text(root, "variety"), "");
+        add(parts, "物候期：", phenology(text(root, "currentPhenology")), "");
+        return parts.isEmpty() ? "果园信息查询完成" : String.join("；", parts);
+    }
+
+    private static String weatherSummary(JsonNode root) {
+        JsonNode current = root.path("current");
+        List<String> parts = new ArrayList<>();
+        add(parts, "当前", text(current, "weather"), "");
+        add(parts, "", text(current, "temperatureC"), "℃");
+        String windDirection = text(current, "windDirection");
+        String windLevel = text(current, "windLevel");
+        if (!windDirection.isBlank() || !windLevel.isBlank()) {
+            parts.add(windDirection + "风" + windLevel + "级");
+        }
+        JsonNode forecast = root.path("forecast");
+        if (forecast.isArray() && !forecast.isEmpty()) {
+            parts.add("已获取未来 " + forecast.size() + " 天天气");
+        }
+        return parts.isEmpty() ? "天气查询完成" : String.join("，", parts);
+    }
+
+    private static String text(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isMissingNode() || value.isNull() ? "" : value.asText("");
+    }
+
+    private static void add(List<String> parts, String prefix, String value, String suffix) {
+        if (!value.isBlank()) parts.add(prefix + value + suffix);
+    }
+
+    private static String phenology(String value) {
+        return switch (value) {
+            case "FLOWERING" -> "开花期";
+            case "FRUIT_SETTING" -> "坐果期";
+            case "FRUIT_EXPANSION" -> "果实膨大期";
+            case "MATURITY" -> "成熟期";
+            case "DORMANCY" -> "休眠期";
+            default -> value;
+        };
     }
 
     private static void sendError(SseEmitter emitter, int code, String message) {

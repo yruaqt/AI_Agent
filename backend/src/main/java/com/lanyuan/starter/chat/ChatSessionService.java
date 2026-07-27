@@ -13,16 +13,20 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ChatSessionService {
 
-    private static final String DEFAULT_TITLE = "新会话";
+    private static final String DEFAULT_TITLE = "新对话";
+    private static final String LEGACY_DEFAULT_TITLE = "新会话";
 
     private final ChatSessionRepository repository;
+    private final ChatMessageRepository messageRepository;
     private final OrchardService orchardService;
     private final CurrentUser currentUser;
 
     public ChatSessionService(ChatSessionRepository repository,
+                              ChatMessageRepository messageRepository,
                               OrchardService orchardService,
                               CurrentUser currentUser) {
         this.repository = repository;
+        this.messageRepository = messageRepository;
         this.orchardService = orchardService;
         this.currentUser = currentUser;
     }
@@ -37,8 +41,10 @@ public class ChatSessionService {
         return repository.save(value);
     }
 
+    @Transactional
     public Page<ChatSession> list(Long orchardId, Pageable pageable) {
-        return repository.findForUser(currentUser.id(), orchardId, pageable);
+        return repository.findForUser(currentUser.id(), orchardId, pageable)
+                .map(this::generateTitleFromHistoryIfNecessary);
     }
 
     /**
@@ -75,10 +81,23 @@ public class ChatSessionService {
 
     @Transactional
     public void generateTitleIfNecessary(ChatSession session, String firstMessage) {
-        if (DEFAULT_TITLE.equals(session.getTitle())) {
+        if (isDefaultTitle(session.getTitle())) {
             session.setTitle(titleFromMessage(firstMessage));
             repository.save(session);
         }
+    }
+
+    private ChatSession generateTitleFromHistoryIfNecessary(ChatSession session) {
+        if (!isDefaultTitle(session.getTitle())) return session;
+        messageRepository.findFirstBySessionIdAndRoleOrderByCreatedAtAsc(
+                        session.getId(), ChatMessageRole.USER)
+                .ifPresent(message -> session.setTitle(titleFromMessage(message.getContent())));
+        return session;
+    }
+
+    private static boolean isDefaultTitle(String title) {
+        return title == null || title.isBlank()
+                || DEFAULT_TITLE.equals(title) || LEGACY_DEFAULT_TITLE.equals(title);
     }
 
     @Transactional

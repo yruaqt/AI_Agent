@@ -25,6 +25,7 @@ interface ToolCall {
   name: string
   status: string
   summary?: string | Record<string, any>
+  _expanded?: boolean
 }
 
 interface Message {
@@ -52,6 +53,9 @@ const sessionPaneVisible = ref(false)
 const initLoading = ref(false)
 const initError = ref<string | null>(null)
 const sessionError = ref<string | null>(null)
+
+const DEFAULT_SESSION_TITLE = '新对话'
+const SESSION_TITLE_MAX_LENGTH = 30
 
 // ── 滚动控制 ──
 let isNearBottom = true
@@ -147,6 +151,21 @@ async function createSession() {
   messages.value = []
 }
 
+function titleFromQuestion(question: string): string {
+  const normalized = question.trim().replace(/\s+/g, ' ')
+  if (!normalized) return DEFAULT_SESSION_TITLE
+  return normalized.length <= SESSION_TITLE_MAX_LENGTH
+    ? normalized
+    : `${normalized.slice(0, SESSION_TITLE_MAX_LENGTH)}…`
+}
+
+function updateSessionTitle(sessionId: string, question: string) {
+  const session = sessions.value.find((item) => item.sessionId === sessionId)
+  const defaultTitles = [DEFAULT_SESSION_TITLE, '新会话']
+  if (!session || (session.title && !defaultTitles.includes(session.title))) return
+  session.title = titleFromQuestion(question)
+}
+
 async function select(id: string) {
   // P0: 切换会话前终止旧 SSE 请求
   stop()
@@ -202,6 +221,69 @@ const toolLabelMap: Record<string, string> = {
 }
 function toolLabel(name: string): string {
   return toolLabelMap[name] || name
+}
+
+function toolSummaryText(tool: ToolCall): string {
+  const fallback = tool.status === 'FAILED'
+    ? '查询失败，请稍后重试'
+    : '查询完成，结果已用于生成回答'
+  if (!tool.summary) return fallback
+
+  if (typeof tool.summary === 'object') {
+    return friendlyToolSummary(tool.name, tool.summary) || fallback
+  }
+
+  const value = tool.summary.trim()
+  if (!value) return fallback
+  if (value.startsWith('{') || value.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value)
+      return friendlyToolSummary(tool.name, parsed) || fallback
+    } catch {
+      return fallback
+    }
+  }
+  return value
+}
+
+function friendlyToolSummary(name: string, data: Record<string, any>): string {
+  if (name === 'getOrchardContext') {
+    const parts = [
+      data.name && `果园：${data.name}`,
+      data.areaMu != null && `面积：${data.areaMu} 亩`,
+      data.treeCount != null && `树木：${data.treeCount} 株`,
+      data.variety && `品种：${data.variety}`,
+      data.currentPhenology && `物候期：${phenologyLabel(data.currentPhenology)}`
+    ].filter(Boolean)
+    return parts.join('；')
+  }
+
+  if (name === 'queryOrchardWeather') {
+    const current = data.current || {}
+    const parts = [
+      current.weather && `当前${current.weather}`,
+      current.temperatureC != null && `${current.temperatureC}℃`,
+      current.windDirection && `${current.windDirection}风`,
+      current.windLevel && `${current.windLevel}级`,
+      Array.isArray(data.forecast) && data.forecast.length > 0
+        ? `已获取未来 ${data.forecast.length} 天天气`
+        : ''
+    ].filter(Boolean)
+    return parts.join('，')
+  }
+
+  return ''
+}
+
+function phenologyLabel(value: string): string {
+  const labels: Record<string, string> = {
+    FLOWERING: '开花期',
+    FRUIT_SETTING: '坐果期',
+    FRUIT_EXPANSION: '果实膨大期',
+    MATURITY: '成熟期',
+    DORMANCY: '休眠期'
+  }
+  return labels[value] || value
 }
 
 async function remove(id: string) {
@@ -280,6 +362,9 @@ async function send(regenerateText?: string) {
       const err = await response.json().catch(() => ({}))
       throw new Error(err.message || `请求失败 (${response.status})`)
     }
+
+    // 后端会在首条用户消息入库时持久化标题；前端同步更新，避免左侧仍显示“新对话”。
+    updateSessionTitle(activeSession.value, text)
 
     const reader = response.body!.getReader()
     readerRef = reader
@@ -605,10 +690,7 @@ onBeforeUnmount(() => {
                     </el-icon>
                   </div>
                   <div v-if="t._expanded && t.summary" class="tool-summary">
-                    <div v-if="typeof t.summary === 'object'" class="summary-json">
-                      <pre>{{ JSON.stringify(t.summary, null, 2) }}</pre>
-                    </div>
-                    <span v-else>{{ t.summary }}</span>
+                    <span>{{ toolSummaryText(t) }}</span>
                   </div>
                 </div>
               </div>
