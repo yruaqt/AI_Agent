@@ -50,24 +50,13 @@ async function submit() {
 <template>
   <main class="login-page">
     <section class="login-visual">
-      <div class="login-brand">
-        <span class="brand-mark large">榄</span>
-        <p>OLIVE ORCHARD INTELLIGENCE</p>
-      </div>
       <div class="login-caption">
         <h1>榄园知行</h1>
-        <p>学校橄榄实训果园 · 幼果膨大期</p>
-        <div class="field-strip">
-          <span>5 亩</span>
-          <span>300 株</span>
-          <span>滴灌</span>
-        </div>
       </div>
     </section>
 
     <section class="login-panel">
       <div class="login-form">
-        <p class="eyebrow">果园作业系统</p>
         <h2>账户登录</h2>
 
         <el-form
@@ -111,11 +100,6 @@ async function submit() {
             <el-icon class="el-icon--right"><ArrowRight /></el-icon>
           </el-button>
         </el-form>
-
-        <div class="demo-accounts">
-          <span>管理员 admin / 123456</span>
-          <span>学生 student / 123456</span>
-        </div>
       </div>
 
       <p class="login-footer">榄园知行 · V1.0</p>
