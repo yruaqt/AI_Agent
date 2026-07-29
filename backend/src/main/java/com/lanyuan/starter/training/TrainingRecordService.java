@@ -80,6 +80,15 @@ public class TrainingRecordService {
     }
 
     @Transactional
+    public void delete(Long id) {
+        TrainingRecord record = detail(id);
+        if ("APPROVED".equals(record.getReviewStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "已通过的实训记录不能删除");
+        }
+        repository.delete(record);
+    }
+
+    @Transactional
     public TrainingRecord review(Long id, Integer score, String comment, String status) {
         TrainingRecord record = detail(id);
         record.setScore(score);

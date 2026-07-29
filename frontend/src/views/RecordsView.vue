@@ -13,8 +13,8 @@ import type {
   UploadedFile
 } from '@/types'
 import { useAuthStore } from '@/stores/auth'
-import { Plus, Refresh, View, Edit, Check, Filter, Star, Picture } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { Plus, Refresh, View, Edit, Check, Filter, Star, Picture, Delete } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import SkeletonTable from '@/components/SkeletonTable.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -31,6 +31,7 @@ const records = ref<TrainingRecord[]>([])
 const tasks = ref<Task[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const deletingRecordId = ref<string | null>(null)
 
 // 分页
 const pagination = reactive({
@@ -398,6 +399,38 @@ async function saveEdit() {
   }
 }
 
+function canDelete(record: TrainingRecord) {
+  return (auth.isAdmin || record.studentId === auth.user?.id)
+    && record.reviewStatus !== 'APPROVED'
+}
+
+async function removeRecord(record: TrainingRecord) {
+  try {
+    await ElMessageBox.confirm(
+      `删除 ${record.recordDate} 的实训记录后无法恢复，是否继续？`,
+      '确认删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+    deletingRecordId.value = record.id
+    await api.delete(`/training-records/${record.id}`)
+    if (currentRecord.value?.id === record.id) {
+      detailVisible.value = false
+      currentRecord.value = null
+    }
+    if (records.value.length === 1 && pagination.page > 1) {
+      pagination.page -= 1
+    }
+    ElMessage.success('实训记录已删除')
+    await load()
+  } catch (action) {
+    if (action !== 'cancel' && action !== 'close') {
+      console.error('删除实训记录失败', action)
+    }
+  } finally {
+    deletingRecordId.value = null
+  }
+}
+
 // 组件卸载时释放 blob URL，避免内存泄漏
 onBeforeUnmount(() => {
   Object.values(detailImageSrc).forEach(u => {
@@ -533,6 +566,15 @@ onMounted(load)
                   :icon="Check"
                   @click="openReview(row)"
                 >评价</el-button>
+                <el-button
+                  v-if="canDelete(row)"
+                  size="small"
+                  link
+                  type="danger"
+                  :icon="Delete"
+                  :loading="deletingRecordId === row.id"
+                  @click="removeRecord(row)"
+                >删除</el-button>
               </div>
             </div>
             <div class="card-stats">
@@ -742,6 +784,15 @@ onMounted(load)
             @click="detailVisible = false; openReview(currentRecord)"
           >
             教师评价
+          </el-button>
+          <el-button
+            v-if="canDelete(currentRecord)"
+            type="danger"
+            :icon="Delete"
+            :loading="deletingRecordId === currentRecord.id"
+            @click="removeRecord(currentRecord)"
+          >
+            删除记录
           </el-button>
         </div>
       </div>
@@ -1078,6 +1129,7 @@ onMounted(load)
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .card-stats {

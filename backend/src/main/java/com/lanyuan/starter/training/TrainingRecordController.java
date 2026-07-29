@@ -89,6 +89,16 @@ public class TrainingRecordController extends ControllerSupport {
                 req.phenomenon, req.measure, req.result));
     }
 
+    @DeleteMapping("/{recordId}")
+    @Operation(summary = "删除实训记录")
+    public ApiResponse<Void> delete(@PathVariable @Min(1) Long recordId) {
+        if (!currentUser.isAdmin()) {
+            service.checkOwnership(recordId, currentUser.id());
+        }
+        service.delete(recordId);
+        return ApiResponse.ok(null);
+    }
+
     @PostMapping("/{recordId}/review")
     @Operation(summary = "教师评价")
     public ApiResponse<TrainingRecord> review(@PathVariable @Min(1) Long recordId, @Valid @RequestBody ReviewRequest req) {

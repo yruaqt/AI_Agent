@@ -22,6 +22,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -138,6 +140,12 @@ class TrainingRecordPermissionTest {
     }
 
     @Test
+    void delete_requiresAuthentication() throws Exception {
+        mvc.perform(delete("/api/v1/training-records/1"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void studentCannotAccessOtherStudentRecord() throws Exception {
         // 学生A尝试查看学生B的记录 → 403
         mvc.perform(get("/api/v1/training-records/" + studentBRecordId)
@@ -172,6 +180,13 @@ class TrainingRecordPermissionTest {
                         .header("Authorization", studentAToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void studentCannotDeleteOtherStudentRecord() throws Exception {
+        mvc.perform(delete("/api/v1/training-records/" + studentBRecordId)
+                        .header("Authorization", studentAToken))
                 .andExpect(status().isForbidden());
     }
 
@@ -211,6 +226,49 @@ class TrainingRecordPermissionTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void adminCanDeletePendingRecord() throws Exception {
+        mvc.perform(delete("/api/v1/training-records/" + studentBRecordId)
+                        .header("Authorization", adminToken))
+                .andExpect(status().isOk());
+
+        assertFalse(trainingRecordRepository.existsById(studentBRecordId));
+    }
+
+    @Test
+    void studentCanDeleteOwnPendingRecord() throws Exception {
+        AppUser studentA = userRepository.findByUsername("studentA").orElseThrow();
+        TrainingRecord record = new TrainingRecord();
+        record.setStudentId(studentA.getId());
+        record.setOrchardId(orchardId);
+        record.setRecordDate(LocalDate.now());
+        record.setReviewStatus("PENDING");
+        Long recordId = trainingRecordRepository.save(record).getId();
+
+        mvc.perform(delete("/api/v1/training-records/" + recordId)
+                        .header("Authorization", studentAToken))
+                .andExpect(status().isOk());
+
+        assertFalse(trainingRecordRepository.existsById(recordId));
+    }
+
+    @Test
+    void approvedRecordCannotBeDeleted() throws Exception {
+        AppUser studentB = userRepository.findByUsername("studentB").orElseThrow();
+        TrainingRecord record = new TrainingRecord();
+        record.setStudentId(studentB.getId());
+        record.setOrchardId(orchardId);
+        record.setRecordDate(LocalDate.now());
+        record.setReviewStatus("APPROVED");
+        Long recordId = trainingRecordRepository.save(record).getId();
+
+        mvc.perform(delete("/api/v1/training-records/" + recordId)
+                        .header("Authorization", adminToken))
+                .andExpect(status().isConflict());
+
+        assertTrue(trainingRecordRepository.existsById(recordId));
     }
 
     // ========== 数据合法性测试 ==========
