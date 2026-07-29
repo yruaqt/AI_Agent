@@ -206,7 +206,7 @@ const hasWarning = computed(() => {
               <el-segmented
                 v-model="forms.fertilizer.unit"
                 :options="[
-                  { label: '克 (G)', value: 'G' },
+                  { label: '克 (G)', value: 'GRAM' },
                   { label: '千克 (KG)', value: 'KG' }
                 ]"
                 block

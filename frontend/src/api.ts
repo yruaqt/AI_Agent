@@ -4,10 +4,7 @@ import type { ApiResult, ApiError, ErrorCode } from './types'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api/v1',
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  timeout: 30000
 })
 
 // Token 管理函数
