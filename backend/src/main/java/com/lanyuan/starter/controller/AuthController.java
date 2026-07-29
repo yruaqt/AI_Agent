@@ -46,7 +46,7 @@ public class AuthController extends ControllerSupport {
             throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS,
                     "登录失败次数过多，账号已锁定，请 " + minutes + " 分钟后再试");
         }
-        AppUser user = userRepository.findByUsername(request.username())
+        AppUser user = userRepository.findByUsernameAndDeletedFalse(request.username())
                 .filter(u -> u.getStatus() == EnabledStatus.ENABLED)
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
                 .orElseThrow(() -> {

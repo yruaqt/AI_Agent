@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Service
 public class TrainingRecordService {
@@ -21,7 +22,8 @@ public class TrainingRecordService {
     @Transactional
     public TrainingRecord create(Long studentId, Long orchardId, Long taskId, LocalDate recordDate,
                                  Integer inspectedTreeCount, Integer abnormalTreeCount,
-                                 String imageUrl, String phenomenon, String measure, String result) {
+                                 String imageUrl, List<TrainingRecordImage> images,
+                                 String phenomenon, String measure, String result) {
         TrainingRecord record = new TrainingRecord();
         record.setStudentId(studentId);
         record.setOrchardId(orchardId);
@@ -29,7 +31,8 @@ public class TrainingRecordService {
         record.setRecordDate(recordDate);
         record.setInspectedTreeCount(inspectedTreeCount);
         record.setAbnormalTreeCount(abnormalTreeCount);
-        record.setImageUrl(imageUrl);
+        record.setImageUrl(primaryImageUrl(imageUrl, images));
+        record.setImages(images);
         record.setPhenomenon(phenomenon);
         record.setMeasure(measure);
         record.setResult(result);
@@ -61,7 +64,8 @@ public class TrainingRecordService {
     @Transactional
     public TrainingRecord update(Long id, Long orchardId, Long taskId, LocalDate recordDate,
                                  Integer inspectedTreeCount, Integer abnormalTreeCount,
-                                 String imageUrl, String phenomenon, String measure, String result) {
+                                 String imageUrl, List<TrainingRecordImage> images,
+                                 String phenomenon, String measure, String result) {
         TrainingRecord record = detail(id);
         // 已评价的记录不得修改（除非教师退回）
         if ("APPROVED".equals(record.getReviewStatus())) {
@@ -72,11 +76,21 @@ public class TrainingRecordService {
         record.setRecordDate(recordDate);
         record.setInspectedTreeCount(inspectedTreeCount);
         record.setAbnormalTreeCount(abnormalTreeCount);
-        record.setImageUrl(imageUrl);
+        if (images != null) {
+            record.setImageUrl(primaryImageUrl(imageUrl, images));
+            record.setImages(images);
+        } else if (imageUrl != null) {
+            record.setImageUrl(imageUrl);
+        }
         record.setPhenomenon(phenomenon);
         record.setMeasure(measure);
         record.setResult(result);
         return repository.save(record);
+    }
+
+    private static String primaryImageUrl(String imageUrl, List<TrainingRecordImage> images) {
+        if (images == null) return imageUrl;
+        return images.isEmpty() ? null : images.get(0).url();
     }
 
     @Transactional

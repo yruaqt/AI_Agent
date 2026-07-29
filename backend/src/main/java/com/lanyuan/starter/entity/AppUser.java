@@ -39,6 +39,9 @@ public class AppUser {
     @Column(nullable = false)
     private EnabledStatus status = EnabledStatus.ENABLED;
 
+    @Column(nullable = false)
+    private boolean deleted;
+
     public AppUser() {}
 
     public AppUser(String username, String passwordHash, String displayName, UserRole role) {
@@ -70,6 +73,8 @@ public class AppUser {
 
     public EnabledStatus getStatus() { return status; }
     public void setStatus(EnabledStatus status) { this.status = status; }
+    public boolean isDeleted() { return deleted; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }

@@ -109,6 +109,14 @@ public class OrchardController extends ControllerSupport {
         return ApiResponse.ok(orchardService.update(orchardId, updated));
     }
 
+    @DeleteMapping("/{orchardId}")
+    @Operation(summary = "Delete orchard")
+    public ApiResponse<Void> delete(@PathVariable @Min(1) Long orchardId) {
+        requireAdmin();
+        orchardService.delete(orchardId);
+        return ApiResponse.ok(null);
+    }
+
     @PatchMapping("/{orchardId}/status")
     @Operation(summary = "修改果园状态（管理员）")
     public ApiResponse<Orchard> toggleStatus(@PathVariable @Min(1) Long orchardId, @RequestBody ToggleStatusRequest req) {

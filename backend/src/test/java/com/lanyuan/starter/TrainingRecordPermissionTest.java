@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 /**
  * 实训记录模块权限和校验测试
@@ -365,6 +366,30 @@ class TrainingRecordPermissionTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void createRecordPreservesUploadedImages() throws Exception {
+        Map<String, Object> image = Map.of(
+                "fileId", "801",
+                "fileName", "field-photo.jpg",
+                "url", "/api/v1/files/801/content"
+        );
+        Map<String, Object> payload = Map.of(
+                "orchardId", orchardId,
+                "recordDate", LocalDate.now().toString(),
+                "inspectedTreeCount", 10,
+                "abnormalTreeCount", 1,
+                "images", java.util.List.of(image)
+        );
+
+        mvc.perform(post("/api/v1/training-records")
+                        .header("Authorization", studentAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.images[0].fileId").value("801"))
+                .andExpect(jsonPath("$.data.images[0].url").value("/api/v1/files/801/content"));
     }
 
     @Test

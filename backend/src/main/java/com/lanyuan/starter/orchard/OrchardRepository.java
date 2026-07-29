@@ -12,7 +12,10 @@ public interface OrchardRepository extends JpaRepository<Orchard, Long> {
 
     Optional<Orchard> findByName(String name);
 
+    Optional<Orchard> findByIdAndDeletedFalse(Long id);
+
     @Query("SELECT o FROM Orchard o WHERE " +
+           "o.deleted = false AND " +
            "(:status IS NULL OR o.status = :status) AND " +
            "(:keyword IS NULL OR :keyword = '' OR o.name LIKE %:keyword%)")
     Page<Orchard> findWithFilters(

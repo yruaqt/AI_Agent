@@ -29,7 +29,7 @@ public class OrchardService {
     }
 
     public Orchard detail(Long id) {
-        return orchardRepository.findById(id)
+        return orchardRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "果园不存在"));
     }
 
@@ -64,6 +64,14 @@ public class OrchardService {
         Orchard orchard = detail(id);
         orchard.setStatus(status);
         return orchardRepository.save(orchard);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        Orchard orchard = detail(id);
+        orchard.setDeleted(true);
+        orchard.setStatus(EnabledStatus.DISABLED);
+        orchardRepository.save(orchard);
     }
 
     @Transactional

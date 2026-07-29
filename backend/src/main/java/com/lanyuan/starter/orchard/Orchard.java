@@ -54,6 +54,9 @@ public class Orchard extends BusinessEntity {
     @Column(nullable = false, length = 16)
     private EnabledStatus status = EnabledStatus.ENABLED;
 
+    @Column(nullable = false)
+    private boolean deleted;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private PhenologyStage currentPhenology = PhenologyStage.FRUIT_EXPANSION;
@@ -97,6 +100,8 @@ public class Orchard extends BusinessEntity {
     public void setManagerName(String managerName) { this.managerName = managerName; }
     public EnabledStatus getStatus() { return status; }
     public void setStatus(EnabledStatus status) { this.status = status; }
+    public boolean isDeleted() { return deleted; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
     public PhenologyStage getCurrentPhenology() { return currentPhenology; }
     public void setCurrentPhenology(PhenologyStage currentPhenology) { this.currentPhenology = currentPhenology; }
     public LocalDate getPhenologyEffectiveDate() { return phenologyEffectiveDate; }

@@ -5,6 +5,7 @@ import com.lanyuan.starter.common.api.PageResponse;
 import com.lanyuan.starter.common.exception.BusinessException;
 import com.lanyuan.starter.common.exception.ErrorCode;
 import com.lanyuan.starter.common.web.ControllerSupport;
+import com.lanyuan.starter.common.web.CurrentUser;
 import com.lanyuan.starter.entity.AppUser;
 import com.lanyuan.starter.enums.UserRole;
 import com.lanyuan.starter.orchard.EnabledStatus;
@@ -30,10 +31,12 @@ public class UserController extends ControllerSupport {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CurrentUser currentUser;
 
-    public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder, CurrentUser currentUser) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.currentUser = currentUser;
     }
 
     @GetMapping
@@ -46,11 +49,7 @@ public class UserController extends ControllerSupport {
         PageRequest pageable = pageRequest(page - 1, pageSize, Sort.Direction.DESC, "createdAt");
         EnabledStatus statusEnum = parseStatus(status);
 
-        var result = keyword.isBlank()
-                ? (statusEnum == null ? userRepository.findAll(pageable) : userRepository.findByStatus(statusEnum, pageable))
-                : (statusEnum == null
-                    ? userRepository.findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(keyword, keyword, pageable)
-                    : userRepository.findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCaseAndStatus(keyword, keyword, statusEnum, pageable));
+        var result = userRepository.findVisibleWithFilters(keyword, statusEnum, pageable);
 
         return ApiResponse.ok(pageResponse(result.map(this::userView)));
     }
@@ -85,7 +84,7 @@ public class UserController extends ControllerSupport {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "status 值不合法，应为 ENABLED 或 DISABLED");
         }
 
-        AppUser user = userRepository.findById(id)
+        AppUser user = userRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
 
         user.setStatus(newStatus);
@@ -98,12 +97,25 @@ public class UserController extends ControllerSupport {
             @PathVariable Long id,
             @Valid @RequestBody ResetPasswordRequest request) {
 
-        AppUser user = userRepository.findById(id)
+        AppUser user = userRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "用户不存在"));
 
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         user = userRepository.save(user);
         return ApiResponse.ok(Map.of("reset", true));
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        if (currentUser.id().equals(id)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Cannot delete the current account");
+        }
+        AppUser user = userRepository.findByIdAndDeletedFalse(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
+        user.setDeleted(true);
+        user.setStatus(EnabledStatus.DISABLED);
+        userRepository.save(user);
+        return ApiResponse.ok(null);
     }
 
     // ===== 私有方法 =====

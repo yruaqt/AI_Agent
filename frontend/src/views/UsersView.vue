@@ -9,6 +9,7 @@ import {
   Key,
   Check,
   Close,
+  Delete,
   User as UserIcon
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -22,6 +23,7 @@ const auth = useAuthStore()
 const users = ref<User[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const deletingUserId = ref<string | null>(null)
 
 const pagination = reactive({
   page: 1,
@@ -169,6 +171,33 @@ async function toggleStatus(row: User) {
   }
 }
 
+async function removeUser(row: User) {
+  if (row.id === auth.user?.id) {
+    ElMessage.warning('不能删除当前登录账号')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `删除账号「${row.displayName}（@${row.username}）」后将无法登录，并从用户列表中移除；其历史业务记录会保留。是否继续？`,
+      '确认删除账号',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+    deletingUserId.value = row.id
+    await api.delete(`/users/${row.id}`)
+    if (users.value.length === 1 && pagination.page > 1) {
+      pagination.page -= 1
+    }
+    ElMessage.success('用户已删除')
+    await load()
+  } catch (action) {
+    if (action !== 'cancel' && action !== 'close') {
+      console.error('删除用户失败', action)
+    }
+  } finally {
+    deletingUserId.value = null
+  }
+}
+
 function openResetDialog(row: User) {
   resetTarget.value = row
   resetForm.newPassword = ''
@@ -307,6 +336,15 @@ onMounted(load)
                     >
                       <Close v-if="row.status === 'ENABLED'" />
                       <Check v-else />
+                    </button>
+                    <button
+                      v-if="row.id !== auth.user?.id"
+                      class="action-btn delete"
+                      title="删除用户"
+                      :disabled="deletingUserId === row.id"
+                      @click="removeUser(row)"
+                    >
+                      <Delete />
                     </button>
                   </div>
                 </td>
@@ -634,6 +672,12 @@ onMounted(load)
   border-color: var(--red);
   color: var(--red);
   background: #f8f0ef;
+}
+
+.action-btn.delete:hover {
+  border-color: var(--red);
+  color: var(--red);
+  background: #fdf0f0;
 }
 
 .loading-overlay {

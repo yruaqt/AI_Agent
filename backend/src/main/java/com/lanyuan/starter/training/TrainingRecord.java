@@ -3,6 +3,7 @@ package com.lanyuan.starter.training;
 import com.lanyuan.starter.database.entity.BusinessEntity;
 import jakarta.persistence.*;
 import java.time.LocalDate;
+import java.util.List;
 
 @Entity
 @Table(name = "training_record")
@@ -27,6 +28,10 @@ public class TrainingRecord extends BusinessEntity {
 
     @Column(length = 512)
     private String imageUrl;
+
+    @Convert(converter = TrainingRecordImagesConverter.class)
+    @Column(name = "images_json", columnDefinition = "TEXT")
+    private List<TrainingRecordImage> images = List.of();
 
     @Column(length = 1000)
     private String phenomenon;
@@ -62,6 +67,14 @@ public class TrainingRecord extends BusinessEntity {
     public void setAbnormalTreeCount(Integer abnormalTreeCount) { this.abnormalTreeCount = abnormalTreeCount; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public List<TrainingRecordImage> getImages() {
+        if (images != null && !images.isEmpty()) return List.copyOf(images);
+        if (imageUrl == null || imageUrl.isBlank()) return List.of();
+        return List.of(new TrainingRecordImage(null, "现场图片", imageUrl));
+    }
+    public void setImages(List<TrainingRecordImage> images) {
+        this.images = images == null ? List.of() : List.copyOf(images);
+    }
     public String getPhenomenon() { return phenomenon; }
     public void setPhenomenon(String phenomenon) { this.phenomenon = phenomenon; }
     public String getMeasure() { return measure; }

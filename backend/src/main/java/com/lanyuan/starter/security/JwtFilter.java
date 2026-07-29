@@ -55,7 +55,7 @@ public class JwtFilter extends OncePerRequestFilter {
                 Claims claims = jwtService.parse(token);
                 String username = claims.getSubject();
 
-                var userOpt = userRepository.findByUsername(username);
+                var userOpt = userRepository.findByUsernameAndDeletedFalse(username);
                 if (userOpt.isEmpty()) {
                     writeError(response, ErrorCode.UNAUTHORIZED, "用户不存在");
                     return;

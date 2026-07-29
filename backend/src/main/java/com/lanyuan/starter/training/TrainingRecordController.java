@@ -18,6 +18,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/training-records")
@@ -43,7 +44,7 @@ public class TrainingRecordController extends ControllerSupport {
         }
         return ApiResponse.ok(service.create(currentUser.id(), req.orchardId, req.taskId, req.recordDate,
                 req.inspectedTreeCount, req.abnormalTreeCount, req.imageUrl,
-                req.phenomenon, req.measure, req.result));
+                toImages(req.images), req.phenomenon, req.measure, req.result));
     }
 
     @GetMapping
@@ -86,7 +87,7 @@ public class TrainingRecordController extends ControllerSupport {
         }
         return ApiResponse.ok(service.update(recordId, req.orchardId, req.taskId, req.recordDate,
                 req.inspectedTreeCount, req.abnormalTreeCount, req.imageUrl,
-                req.phenomenon, req.measure, req.result));
+                toImages(req.images), req.phenomenon, req.measure, req.result));
     }
 
     @DeleteMapping("/{recordId}")
@@ -113,6 +114,13 @@ public class TrainingRecordController extends ControllerSupport {
         return ApiResponse.ok(service.review(recordId, req.score, req.comment, req.status));
     }
 
+    private static List<TrainingRecordImage> toImages(List<ImageRequest> images) {
+        if (images == null) return null;
+        return images.stream()
+                .map(image -> new TrainingRecordImage(image.fileId, image.fileName, image.url))
+                .toList();
+    }
+
     // --- Request DTOs ---
     public static class CreateRequest {
         @NotNull public Long orchardId;
@@ -121,6 +129,7 @@ public class TrainingRecordController extends ControllerSupport {
         @Min(0) public Integer inspectedTreeCount;
         @Min(0) public Integer abnormalTreeCount;
         @Size(max = 512) public String imageUrl;
+        @Valid @Size(max = 6) public List<ImageRequest> images;
         @Size(max = 1000) public String phenomenon;
         @Size(max = 1000) public String measure;
         @Size(max = 1000) public String result;
@@ -133,9 +142,16 @@ public class TrainingRecordController extends ControllerSupport {
         @Min(0) public Integer inspectedTreeCount;
         @Min(0) public Integer abnormalTreeCount;
         @Size(max = 512) public String imageUrl;
+        @Valid @Size(max = 6) public List<ImageRequest> images;
         @Size(max = 1000) public String phenomenon;
         @Size(max = 1000) public String measure;
         @Size(max = 1000) public String result;
+    }
+
+    public static class ImageRequest {
+        @Size(max = 64) public String fileId;
+        @Size(max = 255) public String fileName;
+        @NotBlank @Size(max = 512) public String url;
     }
 
     public static class ReviewRequest {

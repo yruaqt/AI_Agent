@@ -12,7 +12,8 @@ import {
   Search,
   Refresh,
   Check,
-  Close
+  Close,
+  Delete
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -25,6 +26,7 @@ const auth = useAuthStore()
 const orchards = ref<Orchard[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const deletingOrchardId = ref<string | null>(null)
 const pagination = reactive({
   page: 1,
   pageSize: 15,
@@ -232,6 +234,29 @@ async function toggleStatus(orchard: Orchard) {
   }
 }
 
+async function removeOrchard(orchard: Orchard) {
+  try {
+    await ElMessageBox.confirm(
+      `删除果园「${orchard.name}」后将从业务列表中移除，但保留其历史任务和实训记录。是否继续？`,
+      '确认删除果园',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+    deletingOrchardId.value = orchard.id
+    await api.delete(`/orchards/${orchard.id}`)
+    if (orchards.value.length === 1 && pagination.page > 1) {
+      pagination.page -= 1
+    }
+    ElMessage.success('果园档案已删除')
+    await loadOrchards()
+  } catch (action) {
+    if (action !== 'cancel' && action !== 'close') {
+      console.error('删除果园失败', action)
+    }
+  } finally {
+    deletingOrchardId.value = null
+  }
+}
+
 function openPhenologyDialog(orchard: Orchard) {
   phenologyOrchardId.value = orchard.id
   phenology.phenology = orchard.currentPhenology || 'FRUIT_EXPANSION'
@@ -410,6 +435,15 @@ onMounted(loadOrchards)
                     >
                       <Close v-if="orchard.status === 'ENABLED'" />
                       <Check v-else />
+                    </button>
+                    <button
+                      v-if="auth.isAdmin"
+                      class="action-btn delete"
+                      title="删除果园"
+                      :disabled="deletingOrchardId === orchard.id"
+                      @click="removeOrchard(orchard)"
+                    >
+                      <Delete />
                     </button>
                   </div>
                 </td>
@@ -743,6 +777,12 @@ onMounted(loadOrchards)
   border-color: var(--amber);
   color: var(--amber);
   background: #fff5e6;
+}
+
+.action-btn.delete:hover {
+  border-color: var(--red);
+  color: var(--red);
+  background: #fdf0f0;
 }
 
 .loading-overlay {

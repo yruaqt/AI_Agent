@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lanyuan.starter.entity.AppUser;
 import com.lanyuan.starter.enums.UserRole;
 import com.lanyuan.starter.repository.UserRepository;
+import com.lanyuan.starter.orchard.OrchardRepository;
 import com.lanyuan.starter.security.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -31,6 +33,7 @@ class OrchardPermissionTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired JwtService jwtService;
     @Autowired UserRepository userRepository;
+    @Autowired OrchardRepository orchardRepository;
     @Autowired PasswordEncoder passwordEncoder;
 
     private String adminToken;
@@ -80,6 +83,13 @@ class OrchardPermissionTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteOrchard_requiresAdmin() throws Exception {
+        mvc.perform(delete("/api/v1/orchards/1")
+                        .header("Authorization", studentToken))
+                .andExpect(status().isForbidden());
     }
 
     // ========== 数据合法性测试 ==========
@@ -180,6 +190,31 @@ class OrchardPermissionTest {
         mvc.perform(get("/api/v1/orchards/" + orchardId)
                         .header("Authorization", adminToken))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void adminCanSoftDeleteOrchard() throws Exception {
+        Map<String, Object> payload = Map.of(
+                "name", "Delete Test Orchard",
+                "areaMu", BigDecimal.valueOf(5.0),
+                "treeCount", 50
+        );
+        String response = mvc.perform(post("/api/v1/orchards")
+                        .header("Authorization", adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        Long orchardId = objectMapper.readTree(response).get("data").get("id").asLong();
+
+        mvc.perform(delete("/api/v1/orchards/" + orchardId)
+                        .header("Authorization", adminToken))
+                .andExpect(status().isOk());
+
+        assertTrue(orchardRepository.findById(orchardId).orElseThrow().isDeleted());
+        mvc.perform(get("/api/v1/orchards/" + orchardId)
+                        .header("Authorization", adminToken))
+                .andExpect(status().isNotFound());
     }
 
     // ========== 权限边界测试 ==========
